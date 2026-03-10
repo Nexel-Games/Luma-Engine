@@ -1,0 +1,27 @@
+{
+  "version": "1.0",
+  "name": "TP_FirstPerson",
+  "description": "First person shooter template converted from Unreal Engine",
+  "pipeline": "CoreLite",
+  "backend": "Auto",
+  "vsync": true,
+  "scenes": [
+    "FirstPersonScene.scene"
+  ],
+  "assets": {
+    "models": "assets/models",
+    "materials": "assets/materials",
+    "textures": "assets/textures",
+    "shaders": "assets/shaders"
+  },
+  "scripts": [
+    "scripts/FirstPersonController.cpp",
+    "scripts/Weapon.cpp",
+    "scripts/Projectile.cpp"
+  ],
+  "input": "input.json",
+  "physics": {
+    "gravity": [0, 0, -9.81],
+    "enabled": true
+  }
+}

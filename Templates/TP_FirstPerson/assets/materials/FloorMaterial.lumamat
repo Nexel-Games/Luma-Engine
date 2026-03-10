@@ -1,0 +1,16 @@
+{
+  "version": "1.0",
+  "name": "FloorMaterial",
+  "shader": "Builtin.Triangle",
+  "properties": {
+    "albedo": [0.5, 0.5, 0.5],
+    "metallic": 0.0,
+    "roughness": 0.8,
+    "normalScale": 1.0
+  },
+  "textures": {
+    "albedo": "textures/floor_albedo.png",
+    "normal": "textures/floor_normal.png",
+    "roughness": "textures/floor_roughness.png"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "name": "WeaponMaterial",
+  "shader": "Builtin.Triangle",
+  "properties": {
+    "albedo": [0.2, 0.2, 0.2],
+    "metallic": 0.9,
+    "roughness": 0.2,
+    "normalScale": 1.0
+  },
+  "textures": {
+    "albedo": "textures/weapon_albedo.png",
+    "normal": "textures/weapon_normal.png",
+    "roughness": "textures/weapon_roughness.png",
+    "metallic": "textures/weapon_metallic.png"
+  }
+}

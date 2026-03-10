@@ -1,0 +1,122 @@
+{
+  "version": "1.0",
+  "name": "FirstPersonScene",
+  "entities": [
+    {
+      "id": "player",
+      "name": "Player",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 2],
+          "rotation": [0, 0, 0],
+          "scale": [1, 1, 1]
+        },
+        "FirstPersonController": {
+          "moveSpeed": 5.0,
+          "lookSpeed": 0.1,
+          "jumpHeight": 3.0,
+          "gravity": -9.81
+        },
+        "Camera": {
+          "fov": 90.0,
+          "near": 0.1,
+          "far": 1000.0,
+          "offset": [0, 0, 1.8]
+        },
+        "CharacterController": {
+          "height": 1.8,
+          "radius": 0.3,
+          "stepOffset": 0.3
+        },
+        "WeaponHolder": {
+          "weaponType": "Pistol",
+          "ammo": 30,
+          "fireRate": 0.2,
+          "damage": 25
+        }
+      }
+    },
+    {
+      "id": "floor",
+      "name": "Floor",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "scale": [50, 50, 1]
+        },
+        "MeshRenderer": {
+          "mesh": "Plane",
+          "material": "FloorMaterial"
+        },
+        "Collider": {
+          "shape": "Box",
+          "center": [0, 0, 0],
+          "halfExtents": [25, 25, 0.5]
+        }
+      }
+    },
+    {
+      "id": "wall1",
+      "name": "Wall1",
+      "components": {
+        "Transform": {
+          "position": [10, 0, 2.5],
+          "rotation": [0, 0, 90],
+          "scale": [20, 1, 5]
+        },
+        "MeshRenderer": {
+          "mesh": "Cube",
+          "material": "WallMaterial"
+        },
+        "Collider": {
+          "shape": "Box",
+          "center": [0, 0, 0],
+          "halfExtents": [10, 0.5, 2.5]
+        }
+      }
+    },
+    {
+      "id": "wall2",
+      "name": "Wall2",
+      "components": {
+        "Transform": {
+          "position": [-10, 0, 2.5],
+          "rotation": [0, 0, 90],
+          "scale": [20, 1, 5]
+        },
+        "MeshRenderer": {
+          "mesh": "Cube",
+          "material": "WallMaterial"
+        },
+        "Collider": {
+          "shape": "Box",
+          "center": [0, 0, 0],
+          "halfExtents": [10, 0.5, 2.5]
+        }
+      }
+    },
+    {
+      "id": "light",
+      "name": "DirectionalLight",
+      "components": {
+        "Transform": {
+          "position": [5, 5, 10],
+          "rotation": [45, 45, 0],
+          "scale": [1, 1, 1]
+        },
+        "Light": {
+          "type": "Directional",
+          "color": [1, 1, 1],
+          "intensity": 1.0,
+          "shadows": true
+        }
+      }
+    }
+  ],
+  "environment": {
+    "skyType": "Procedural",
+    "skyColor": [0.5, 0.7, 1.0],
+    "groundColor": [0.3, 0.3, 0.3]
+  }
+}

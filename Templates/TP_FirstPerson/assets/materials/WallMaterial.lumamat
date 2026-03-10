@@ -1,0 +1,16 @@
+{
+  "version": "1.0",
+  "name": "WallMaterial",
+  "shader": "Builtin.Triangle",
+  "properties": {
+    "albedo": [0.8, 0.8, 0.8],
+    "metallic": 0.0,
+    "roughness": 0.6,
+    "normalScale": 1.0
+  },
+  "textures": {
+    "albedo": "textures/wall_albedo.png",
+    "normal": "textures/wall_normal.png",
+    "roughness": "textures/wall_roughness.png"
+  }
+}

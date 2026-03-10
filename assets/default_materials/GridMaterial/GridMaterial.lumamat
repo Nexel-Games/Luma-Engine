@@ -1,0 +1,56 @@
+{
+  "name": "GridMaterial",
+  "shader": "Standard",
+  "sharedMaterial": "",
+  "renderingMode": 0,
+  "albedoColor": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "albedoTexture": "default_materials/tool_textures/generic.png",
+  "metallicTexture": "",
+  "metallic": 0.0,
+  "smoothness": 0.35,
+  "smoothnessSource": 0,
+  "enableHighlights": true,
+  "enableReflections": true,
+  "normalTexture": "",
+  "normalScale": 1.0,
+  "heightTexture": "",
+  "heightScale": 0.02,
+  "occlusionTexture": "",
+  "occlusionStrength": 1.0,
+  "emissionEnabled": false,
+  "emissionTexture": "",
+  "emissionColor": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "emissionIntensity": 0.0,
+  "globalIllumination": 0,
+  "detailMaskTexture": "",
+  "tiling": [
+    1.0,
+    1.0
+  ],
+  "offset": [
+    0.0,
+    0.0
+  ],
+  "detailAlbedoTexture": "",
+  "detailNormalTexture": "",
+  "detailNormalScale": 1.0,
+  "detailTiling": [
+    1.0,
+    1.0
+  ],
+  "detailOffset": [
+    0.0,
+    0.0
+  ],
+  "uvSet": 0
+}

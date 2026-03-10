@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "inputMappings": {
+    "moveForward": {
+      "key": "W",
+      "type": "key",
+      "action": "hold"
+    },
+    "moveBackward": {
+      "key": "S",
+      "type": "key",
+      "action": "hold"
+    },
+    "moveLeft": {
+      "key": "A",
+      "type": "key",
+      "action": "hold"
+    },
+    "moveRight": {
+      "key": "D",
+      "type": "key",
+      "action": "hold"
+    },
+    "jump": {
+      "key": "Space",
+      "type": "key",
+      "action": "press"
+    },
+    "fire": {
+      "button": "Left",
+      "type": "mouse",
+      "action": "press"
+    },
+    "reload": {
+      "key": "R",
+      "type": "key",
+      "action": "press"
+    },
+    "look": {
+      "axis": "MouseDelta",
+      "type": "axis",
+      "sensitivity": 0.1
+    }
+  },
+  "mouseSettings": {
+    "sensitivity": 0.1,
+    "invertY": false,
+    "locked": true
+  }
+}
