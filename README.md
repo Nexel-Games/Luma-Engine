@@ -7,7 +7,7 @@ Projects created in Luma Engine can be built and deployed to multiple platforms 
 
 Luma Engine is developed as part of the Nexel Games ecosystem, alongside tools such as Luma Hub, which manages engine versions, learning resources, and project launching.
 
-Design Philosophy
+# Design Philosophy
 Luma Engine follows several core design principles:
 
 Modularity First: Every system is designed as an independent, replaceable module
@@ -20,7 +20,7 @@ Cross-Platform Ready: Abstracted systems enable platform expansion
 
 Asset-Driven Workflow: Content creation and management are first-class citizens
 
-Target Audience
+# Target Audience
 Luma Engine is designed for:
 
 Indie Game Developers — Teams needing a flexible, modern engine without licensing complexity
@@ -31,10 +31,10 @@ Engine Developers — Teams looking for a well-architected codebase to build upo
 
 Educational Institutions — Organizations teaching modern game development practices
 
-Current Status
+# Current Status
 Luma Engine is currently in alpha development with a focus on establishing core functionality and architecture. The engine provides a solid foundation with working systems for rendering, scene management, asset importing, and editor tooling, with many advanced features still in development.
 
-Key Capabilities
+# Key Capabilities
 Real-time 3D Rendering with OpenGL backend (Vulkan planned)
 
 Entity Component System for flexible game object management
