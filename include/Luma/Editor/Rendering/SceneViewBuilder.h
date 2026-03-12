@@ -27,6 +27,7 @@ namespace Luma::Editor
         std::uint32_t outputWidth = 1;
         std::uint32_t outputHeight = 1;
         bool previewSceneCameraLens = true;
+        EntityID activeCameraEntity = entt::null;
         EntityID selectedEntity = entt::null;
         SceneViewBuilderCameraState editorCamera {};
         const MeshDesc* skyMesh = nullptr;
@@ -48,6 +49,7 @@ namespace Luma::Editor
     };
 
     EntityID FindEditorCameraEntity(const Scene& scene, EntityID selectedEntity);
+    EntityID FindHighestPriorityPrimaryCameraEntity(const Scene& scene);
     EntityID FindPrimarySkyEntity(const Scene& scene);
     SceneViewBuildResult BuildSceneView(const SceneViewBuildInput& input);
 }

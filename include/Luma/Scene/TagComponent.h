@@ -6,6 +6,7 @@ namespace Luma
 {
     struct TagComponent
     {
-        std::string tag = "Entity";
+        std::string name = "Entity";
+        std::string tag = "Untagged";
     };
 }

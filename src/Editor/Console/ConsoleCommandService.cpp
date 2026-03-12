@@ -10,6 +10,7 @@
 #include <string_view>
 
 #include "Luma/Asset/Streaming/ResourceStreamingService.h"
+#include "Luma/Core/App/Application.h"
 #include "Luma/Core/Foundation/Logging.h"
 #include "Luma/Scene/TagComponent.h"
 
@@ -985,16 +986,16 @@ namespace Luma::Editor
                 return;
             }
 
-            const std::string targetTag = ToLowerString(args[0]);
+            const std::string targetName = ToLowerString(args[0]);
             auto& registry = context.scene->GetRegistry();
             const auto view = registry.view<TagComponent>();
             for (const EntityID entity : view)
             {
                 const auto& tag = view.get<TagComponent>(entity);
-                if (ToLowerString(tag.tag) == targetTag)
+                if (ToLowerString(tag.name) == targetName)
                 {
                     context.selectSingleEntity(entity);
-                    LUMA_LOG_INFO("Console", "Selected entity: " + tag.tag);
+                    LUMA_LOG_INFO("Console", "Selected entity: " + tag.name);
                     return;
                 }
             }
@@ -1009,6 +1010,25 @@ namespace Luma::Editor
                 LUMA_LOG_WARN("Console", "Usage: cvar.set <name> <value>");
                 return;
             }
+            if (ToLowerString(args[0]) == "r.vsync")
+            {
+                bool enabled = false;
+                const bool currentValue =
+                    Application::Get() != nullptr ? Application::Get()->GetRenderer().IsVSyncEnabled() : false;
+                if (!ParseToggleArg(args[1], currentValue, enabled))
+                {
+                    LUMA_LOG_WARN("Console", "Usage: cvar.set r.vsync <on|off|toggle>");
+                    return;
+                }
+
+                if (Application* app = Application::Get(); app != nullptr)
+                {
+                    app->GetRenderer().SetVSyncEnabled(enabled);
+                }
+                (*context.cvars)["r.vsync"] = enabled ? "1" : "0";
+                LUMA_LOG_INFO("Console", std::string("Set cvar r.vsync = ") + (enabled ? "1" : "0"));
+                return;
+            }
             (*context.cvars)[args[0]] = args[1];
             LUMA_LOG_INFO("Console", "Set cvar " + args[0] + " = " + args[1]);
             return;
@@ -1020,6 +1040,12 @@ namespace Luma::Editor
             {
                 LUMA_LOG_WARN("Console", "Usage: cvar.get <name>");
                 return;
+            }
+            if (ToLowerString(args[0]) == "r.vsync")
+            {
+                const bool enabled =
+                    Application::Get() != nullptr ? Application::Get()->GetRenderer().IsVSyncEnabled() : false;
+                (*context.cvars)["r.vsync"] = enabled ? "1" : "0";
             }
             const auto it = context.cvars->find(args[0]);
             if (it == context.cvars->end())

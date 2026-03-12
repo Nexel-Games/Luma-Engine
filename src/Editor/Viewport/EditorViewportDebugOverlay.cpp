@@ -220,22 +220,32 @@ namespace Luma::Editor
         auto& registry = context.scene->GetRegistry();
 
         float fovDegrees = 60.0f;
-        if (context.lensSourceEntity != entt::null &&
-            registry.valid(context.lensSourceEntity) &&
-            registry.all_of<CameraComponent>(context.lensSourceEntity))
-        {
-            const auto& camera = registry.get<CameraComponent>(context.lensSourceEntity);
-            fovDegrees = std::clamp(camera.fovDegrees, 10.0f, 170.0f);
-        }
-
-        constexpr float kPi = 3.14159265359f;
-        const float yawRadians = context.editorCamera->yaw * (kPi / 180.0f);
-        const float pitchRadians = context.editorCamera->pitch * (kPi / 180.0f);
-        const Vec3 eye {
+        float nearPlane = 0.1f;
+        float farPlane = 2000.0f;
+        Vec3 eye {
             context.editorCamera->position[0],
             context.editorCamera->position[1],
             context.editorCamera->position[2]
         };
+        float yawDegrees = context.editorCamera->yaw;
+        float pitchDegrees = context.editorCamera->pitch;
+        if (context.lensSourceEntity != entt::null &&
+            registry.valid(context.lensSourceEntity) &&
+            registry.all_of<TransformComponent, CameraComponent>(context.lensSourceEntity))
+        {
+            const auto& camera = registry.get<CameraComponent>(context.lensSourceEntity);
+            const auto& transform = registry.get<TransformComponent>(context.lensSourceEntity);
+            fovDegrees = std::clamp(camera.fovDegrees, 10.0f, 170.0f);
+            nearPlane = std::max(camera.nearClip, 0.001f);
+            farPlane = std::max(camera.farClip, nearPlane + 0.1f);
+            eye = { transform.worldPosition[0], transform.worldPosition[1], transform.worldPosition[2] };
+            pitchDegrees = transform.worldRotation[0];
+            yawDegrees = transform.worldRotation[1];
+        }
+
+        constexpr float kPi = 3.14159265359f;
+        const float yawRadians = yawDegrees * (kPi / 180.0f);
+        const float pitchRadians = pitchDegrees * (kPi / 180.0f);
         const Vec3 forward = Normalize({
             std::cos(yawRadians) * std::cos(pitchRadians),
             std::sin(pitchRadians),
@@ -244,7 +254,7 @@ namespace Luma::Editor
         const Mat4 view = BuildLookAt(eye, eye + forward, Vec3 { 0.0f, 1.0f, 0.0f });
         const float aspectRatio = std::max(context.renderAreaSize.x, 1.0f) / std::max(context.renderAreaSize.y, 1.0f);
         const float fovRadians = fovDegrees * (kPi / 180.0f);
-        const Mat4 projection = BuildPerspective(fovRadians, aspectRatio, 0.1f, 2000.0f);
+        const Mat4 projection = BuildPerspective(fovRadians, aspectRatio, nearPlane, farPlane);
         const Mat4 viewProjection = Multiply(projection, view);
 
         auto projectWorldToScreen = [&](const Vec3& worldPosition, ImVec2& screenPosition) -> bool

@@ -20,6 +20,7 @@ namespace Luma::Assets
         SkeletalMesh,
         AnimationClip,
         AudioClip,
+        LuaScript,
         Prefab,
         Scene,
         Procedural,
@@ -29,4 +30,3 @@ namespace Luma::Assets
     std::string_view ToString(AssetType type);
     bool TryParseAssetType(std::string_view value, AssetType& outType);
 }
-

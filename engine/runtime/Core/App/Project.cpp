@@ -19,6 +19,13 @@ namespace Luma
 
     namespace
     {
+        constexpr std::array<std::string_view, 4> kDefaultProjectTags = {
+            "Untagged",
+            "Player",
+            "MainCamera",
+            "GameController"
+        };
+
         std::string Trim(std::string value)
         {
             const auto isSpace = [](const char c)
@@ -122,11 +129,51 @@ namespace Luma
             return false;
         }
 
+        void EnsureProjectTags(std::vector<std::string>& tags)
+        {
+            std::vector<std::string> normalizedTags;
+            normalizedTags.reserve(tags.size() + kDefaultProjectTags.size());
+
+            auto appendUnique = [&normalizedTags](std::string tag)
+            {
+                tag = Trim(std::move(tag));
+                if (tag.empty())
+                {
+                    return;
+                }
+
+                const std::string lowered = ToLower(tag);
+                const bool exists = std::any_of(
+                    normalizedTags.begin(),
+                    normalizedTags.end(),
+                    [&lowered](const std::string& existing)
+                    {
+                        return ToLower(existing) == lowered;
+                    });
+                if (!exists)
+                {
+                    normalizedTags.push_back(std::move(tag));
+                }
+            };
+
+            for (const std::string_view defaultTag : kDefaultProjectTags)
+            {
+                appendUnique(std::string(defaultTag));
+            }
+
+            for (std::string& tag : tags)
+            {
+                appendUnique(std::move(tag));
+            }
+
+            tags = std::move(normalizedTags);
+        }
+
         void ApplyConfigDefaults(Project::ProjectConfig& config, std::string_view fallbackName, std::string_view fallbackTemplate)
         {
             if (config.schemaVersion == 0)
             {
-                config.schemaVersion = 3;
+                config.schemaVersion = 4;
             }
 
             if (config.name.empty())
@@ -153,6 +200,8 @@ namespace Luma
             {
                 config.startScene = "Assets/Scenes/Main.scene";
             }
+
+            EnsureProjectTags(config.tags);
 
             // Alpha builds ship OpenGL only. Keep parsing legacy "Auto" values,
             // but normalize saved configs to the backend that actually exists.
@@ -216,7 +265,7 @@ namespace Luma
     Project::ProjectConfig Project::DefaultConfig(const std::string_view name, const std::string_view templateName)
     {
         ProjectConfig config;
-        config.schemaVersion = 3;
+        config.schemaVersion = 4;
         config.name = std::string(name);
         config.engineVersion = "0.0.1";
         config.projectVersion = "0.1.0";
@@ -225,6 +274,7 @@ namespace Luma
         config.pipeline = RenderPipelineProfile::CoreLite;
         config.backend = BackendPreference::OpenGL;
         config.vsync = true;
+        config.tags.assign(kDefaultProjectTags.begin(), kDefaultProjectTags.end());
 
         config.build.activeProfile = BuildProfile::Development;
         config.build.debug = DefaultBuildProfileConfig(BuildProfile::Debug);
@@ -542,6 +592,10 @@ namespace Luma
         output << "RenderPipeline=" << ToString(config.pipeline) << '\n';
         output << "RenderBackend=" << ToString(config.backend) << '\n';
         output << "VSync=" << (config.vsync ? "true" : "false") << '\n';
+        for (std::size_t tagIndex = 0; tagIndex < config.tags.size(); ++tagIndex)
+        {
+            output << "Layer." << tagIndex << '=' << config.tags[tagIndex] << '\n';
+        }
         for (const auto& plugin : config.plugins)
         {
             if (plugin.id.empty())
@@ -626,6 +680,10 @@ namespace Luma
             else if (key == "VSync")
             {
                 ParseBool(value, parsedConfig.vsync);
+            }
+            else if (key.rfind("Layer.", 0) == 0)
+            {
+                parsedConfig.tags.push_back(value);
             }
             else if (key.rfind("Plugin.", 0) == 0)
             {

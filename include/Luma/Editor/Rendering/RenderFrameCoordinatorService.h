@@ -37,6 +37,7 @@ namespace Luma
             Assets::ResourceStreamingService* streamingService = nullptr;
             const Scene* scene = nullptr;
             EditorViewportController* viewportController = nullptr;
+            EntityID activeCameraEntity = entt::null;
             EntityID selectedEntity = entt::null;
             float timeSeconds = 0.0f;
             const MeshDesc* skyMesh = nullptr;

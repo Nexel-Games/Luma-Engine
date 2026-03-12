@@ -5,6 +5,7 @@
 #include <iostream>
 
 #include "Luma/Asset/Streaming/ResourceStreamingService.h"
+#include "Luma/Scene/CameraComponent.h"
 #include "Luma/Editor/Viewport/EditorViewportController.h"
 #include "Luma/RHI/GPUResourceManager.h"
 #include "Luma/RHI/IRenderBackend.h"
@@ -74,6 +75,25 @@ namespace Luma::Editor
             context.buildBlendedPostProcessView(
                 sceneViewBuildResult.sceneView.cameraWorldPosition,
                 sceneViewBuildResult.sceneView.postProcess);
+        }
+
+        if (sceneViewBuildResult.lensSourceEntity != entt::null &&
+            context.scene != nullptr)
+        {
+            const auto& registry = context.scene->GetRegistry();
+            if (registry.valid(sceneViewBuildResult.lensSourceEntity) &&
+                registry.all_of<CameraComponent>(sceneViewBuildResult.lensSourceEntity))
+            {
+                const auto& camera = registry.get<CameraComponent>(sceneViewBuildResult.lensSourceEntity);
+                if (!camera.allowPostProcess)
+                {
+                    sceneViewBuildResult.sceneView.postProcess = ScenePostProcessView {};
+                }
+                else
+                {
+                    sceneViewBuildResult.sceneView.postProcess.exposureCompensationEV += camera.exposure;
+                }
+            }
         }
 
         const auto renderFrameStart = std::chrono::steady_clock::now();
@@ -198,7 +218,8 @@ namespace Luma::Editor
         input.timeSeconds = context.timeSeconds;
         input.outputWidth = outputWidth;
         input.outputHeight = outputHeight;
-        input.previewSceneCameraLens = context.viewportController->PreviewSceneCameraLens();
+        input.previewSceneCameraLens = false;
+        input.activeCameraEntity = context.activeCameraEntity;
         input.selectedEntity = context.selectedEntity;
         input.editorCamera.position = context.viewportController->Camera().position;
         input.editorCamera.yaw = context.viewportController->Camera().yaw;

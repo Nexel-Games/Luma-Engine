@@ -2,6 +2,7 @@
 
 #include <exception>
 #include <fstream>
+#include <functional>
 #include <string>
 #include <system_error>
 #include <unordered_map>
@@ -14,6 +15,7 @@
 #include "Luma/Scene/CharacterControllerComponent.h"
 #include "Luma/Scene/ColliderComponent.h"
 #include "Luma/Scene/D6JointComponent.h"
+#include "Luma/Scene/DestructibleComponent.h"
 #include "Luma/Scene/DirectionalLightComponent.h"
 #include "Luma/Scene/PointLightComponent.h"
 #include "Luma/Scene/FixedJointComponent.h"
@@ -21,6 +23,7 @@
 #include "Luma/Scene/HingeJointComponent.h"
 #include "Luma/Scene/IDComponent.h"
 #include "Luma/Scene/JointComponent.h"
+#include "Luma/Scene/LuaScriptComponent.h"
 #include "Luma/Scene/MaterialComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
 #include "Luma/Scene/PhysicsEventsComponent.h"
@@ -35,6 +38,7 @@
 #include "Luma/Scene/TagComponent.h"
 #include "Luma/Scene/TransformComponent.h"
 #include "Luma/Scene/VehicleComponent.h"
+#include "Luma/Scene/VehicleInputComponent.h"
 #include "Luma/Scene/WheelColliderComponent.h"
 
 namespace Luma
@@ -42,6 +46,39 @@ namespace Luma
     namespace
     {
         using json = nlohmann::json;
+
+        template <typename Func>
+        void VisitEntityHierarchyInOrder(const Scene& scene, const Func& visitor)
+        {
+            const auto& registry = scene.GetRegistry();
+            std::function<void(EntityID)> visitRecursive;
+            visitRecursive = [&](const EntityID entity)
+            {
+                if (!registry.valid(entity))
+                {
+                    return;
+                }
+
+                visitor(entity);
+
+                if (!registry.all_of<RelationshipComponent>(entity))
+                {
+                    return;
+                }
+
+                const auto& relationship = registry.get<RelationshipComponent>(entity);
+                for (const EntityID child : relationship.children)
+                {
+                    visitRecursive(child);
+                }
+            };
+
+            const auto roots = scene.GetRootEntities();
+            for (const EntityID root : roots)
+            {
+                visitRecursive(root);
+            }
+        }
 
         template <typename T, std::size_t N>
         json ArrayToJson(const std::array<T, N>& values)
@@ -113,19 +150,24 @@ namespace Luma
 
             const auto& registry = scene.GetRegistry();
             json root;
-            root["schemaVersion"] = 1;
+            root["schemaVersion"] = 2;
             root["entities"] = json::array();
 
-            const auto view = registry.view<IDComponent>();
-            for (const EntityID entity : view)
+            VisitEntityHierarchyInOrder(scene, [&](const EntityID entity)
             {
-                const auto& id = view.get<IDComponent>(entity);
+                if (!registry.all_of<IDComponent, TagComponent, TransformComponent, RelationshipComponent>(entity))
+                {
+                    return;
+                }
+
+                const auto& id = registry.get<IDComponent>(entity);
                 const auto& tag = registry.get<TagComponent>(entity);
                 const auto& transform = registry.get<TransformComponent>(entity);
                 const auto& relationship = registry.get<RelationshipComponent>(entity);
 
                 json entityJson;
                 entityJson["uuid"] = id.id;
+                entityJson["name"] = tag.name;
                 entityJson["tag"] = tag.tag;
 
                 if (relationship.parent != entt::null &&
@@ -203,9 +245,35 @@ namespace Luma
                 {
                     entityJson["camera"] = {
                         { "primary", component->primary },
+                        { "active", component->active },
+                        { "projection", EnumToInt(component->projection) },
                         { "fovDegrees", component->fovDegrees },
+                        { "orthographicSize", component->orthographicSize },
                         { "nearClip", component->nearClip },
-                        { "farClip", component->farClip }
+                        { "farClip", component->farClip },
+                        { "sensorWidth", component->sensorWidth },
+                        { "sensorHeight", component->sensorHeight },
+                        { "focalLength", component->focalLength },
+                        { "useViewportAspectRatio", component->useViewportAspectRatio },
+                        { "aspectRatio", component->aspectRatio },
+                        { "constrainAspectRatio", component->constrainAspectRatio },
+                        { "clearMode", EnumToInt(component->clearMode) },
+                        { "clearColor", ArrayToJson(component->clearColor) },
+                        { "cullingMask", component->cullingMask },
+                        { "hdr", component->hdr },
+                        { "allowPostProcess", component->allowPostProcess },
+                        { "allowMSAA", component->allowMSAA },
+                        { "allowMotionBlur", component->allowMotionBlur },
+                        { "exposure", component->exposure },
+                        { "renderPriority", component->renderPriority }
+                    };
+                }
+
+                if (const auto* component = registry.try_get<LuaScriptComponent>(entity))
+                {
+                    entityJson["luaScript"] = {
+                        { "enabled", component->enabled },
+                        { "scriptAsset", component->scriptAsset }
                     };
                 }
 
@@ -311,6 +379,30 @@ namespace Luma
                         { "bloomIntensity", component->bloomIntensity },
                         { "bloomThreshold", component->bloomThreshold },
                         { "bloomKnee", component->bloomKnee }
+                    };
+                }
+
+                if (const auto* component = registry.try_get<DestructibleComponent>(entity))
+                {
+                    entityJson["destructible"] = {
+                        { "active", component->active },
+                        { "blastAsset", component->blastAsset },
+                        { "intactMeshOverride", component->intactMeshOverride },
+                        { "visibleIntactMesh", component->visibleIntactMesh },
+                        { "fractureOnImpact", component->fractureOnImpact },
+                        { "accumulateDamage", component->accumulateDamage },
+                        { "worldSupport", component->worldSupport },
+                        { "stressDamage", component->stressDamage },
+                        { "activationMode", EnumToInt(component->activationMode) },
+                        { "chunkSize", EnumToInt(component->chunkSize) },
+                        { "desiredChunkCount", component->desiredChunkCount },
+                        { "damageThreshold", component->damageThreshold },
+                        { "impactDamageScale", component->impactDamageScale },
+                        { "damageSpread", component->damageSpread },
+                        { "chunkMassScale", component->chunkMassScale },
+                        { "maxChunkSpeed", component->maxChunkSpeed },
+                        { "debrisLifetime", component->debrisLifetime },
+                        { "supportDepth", component->supportDepth }
                     };
                 }
 
@@ -457,10 +549,22 @@ namespace Luma
                         { "radius", component->radius },
                         { "width", component->width },
                         { "wheelMass", component->wheelMass },
+                        { "suspensionRestLength", component->suspensionRestLength },
+                        { "suspensionMaxCompression", component->suspensionMaxCompression },
+                        { "suspensionMaxDroop", component->suspensionMaxDroop },
                         { "suspensionStiffness", component->suspensionStiffness },
                         { "suspensionDamping", component->suspensionDamping },
                         { "suspensionTravel", component->suspensionTravel },
-                        { "tireFriction", component->tireFriction }
+                        { "tireFriction", component->tireFriction },
+                        { "tireFrictionScale", component->tireFrictionScale },
+                        { "steerable", component->steerable },
+                        { "driven", component->driven },
+                        { "handbrakeAffected", component->handbrakeAffected },
+                        { "axleType", EnumToInt(component->axleType) },
+                        { "visualWheelEntity", component->visualWheelEntity },
+                        { "suspensionAttachPoint", ArrayToJson(component->suspensionAttachPoint) },
+                        { "wheelRotationAxis", ArrayToJson(component->wheelRotationAxis) },
+                        { "suspensionAxis", ArrayToJson(component->suspensionAxis) }
                     };
                 }
 
@@ -468,21 +572,58 @@ namespace Luma
                 {
                     entityJson["vehicle"] = {
                         { "active", component->active },
+                        { "simulationEnabled", component->simulationEnabled },
+                        { "vehicleType", EnumToInt(component->vehicleType) },
+                        { "inputSource", EnumToInt(component->inputSource) },
+                        { "useCenterOfMassOverride", component->useCenterOfMassOverride },
+                        { "centerOfMassOffset", ArrayToJson(component->centerOfMassOffset) },
                         { "chassisRigidBody", component->chassisRigidBody },
                         { "wheelEntities", component->wheelEntities },
+                        { "dragCoefficient", component->dragCoefficient },
+                        { "rollingResistance", component->rollingResistance },
+                        { "aeroDownforce", component->aeroDownforce },
                         { "engineTorque", component->engineTorque },
+                        { "idleRPM", component->idleRPM },
                         { "maxRPM", component->maxRPM },
-                        { "gearRatio", component->gearRatio },
+                        { "reverseGearRatio", component->reverseGearRatio },
+                        { "gearRatios", component->gearRatios },
                         { "differentialRatio", component->differentialRatio },
+                        { "brakeForce", component->brakeForce },
+                        { "handbrakeForce", component->handbrakeForce },
+                        { "frontBrakeBias", component->frontBrakeBias },
+                        { "frontDriveBias", component->frontDriveBias },
                         { "tireFrictionScale", component->tireFrictionScale },
                         { "suspensionStiffness", component->suspensionStiffness },
                         { "suspensionDamping", component->suspensionDamping },
                         { "suspensionTravel", component->suspensionTravel },
                         { "maxSteerAngleDegrees", component->maxSteerAngleDegrees },
                         { "steerSensitivity", component->steerSensitivity },
+                        { "shiftUpRPM", component->shiftUpRPM },
+                        { "shiftDownRPM", component->shiftDownRPM },
+                        { "automaticTransmission", component->automaticTransmission },
                         { "enableABS", component->enableABS },
                         { "enableTCS", component->enableTCS },
-                        { "inputMap", component->inputMap }
+                        { "ackermannSteering", component->ackermannSteering },
+                        { "autoFlip", component->autoFlip },
+                        { "useSubstepping", component->useSubstepping },
+                        { "sleepWhenInactive", component->sleepWhenInactive },
+                        { "inputMap", component->inputMap },
+                        { "tuningAsset", component->tuningAsset }
+                    };
+                }
+
+                if (const auto* component = registry.try_get<VehicleInputComponent>(entity))
+                {
+                    entityJson["vehicleInput"] = {
+                        { "active", component->active },
+                        { "throttle", component->throttle },
+                        { "brake", component->brake },
+                        { "steering", component->steering },
+                        { "handbrake", component->handbrake },
+                        { "clutch", component->clutch },
+                        { "gearUpRequested", component->gearUpRequested },
+                        { "gearDownRequested", component->gearDownRequested },
+                        { "resetRequested", component->resetRequested }
                     };
                 }
 
@@ -549,7 +690,7 @@ namespace Luma
                 }
 
                 root["entities"].push_back(std::move(entityJson));
-            }
+            });
 
             std::ofstream output(scenePath, std::ios::binary | std::ios::trunc);
             if (!output)
@@ -603,7 +744,8 @@ namespace Luma
             struct EntityRecord
             {
                 UUID uuid = 0;
-                std::string tag = "Entity";
+                std::string name = "Entity";
+                std::string tag = "Untagged";
                 UUID parentUuid = 0;
                 const json* data = nullptr;
             };
@@ -634,7 +776,10 @@ namespace Luma
 
                 EntityRecord record;
                 record.uuid = uuid;
-                record.tag = entityJson.value("tag", std::string("Entity"));
+                record.name = entityJson.value("name", entityJson.value("tag", std::string("Entity")));
+                record.tag = entityJson.contains("name")
+                    ? entityJson.value("tag", std::string("Untagged"))
+                    : std::string("Untagged");
                 record.parentUuid = entityJson.value("parent", static_cast<UUID>(0));
                 record.data = &entityJson;
                 records.push_back(std::move(record));
@@ -656,7 +801,7 @@ namespace Luma
 
             for (const EntityRecord& record : records)
             {
-                Entity entity = scene.CreateEntity(record.tag);
+                Entity entity = scene.CreateEntity(record.name);
                 scene.SetEntityUUID(entity.GetHandle(), record.uuid);
                 entityByUuid.emplace(record.uuid, entity.GetHandle());
             }
@@ -673,7 +818,9 @@ namespace Luma
                 Entity entity(foundEntity->second, &registry);
                 const json& entityJson = *record.data;
 
-                entity.GetComponent<TagComponent>().tag = record.tag;
+                auto& tag = entity.GetComponent<TagComponent>();
+                tag.name = record.name;
+                tag.tag = record.tag;
 
                 if (const auto transformIt = entityJson.find("transform");
                     transformIt != entityJson.end() && transformIt->is_object())
@@ -795,9 +942,41 @@ namespace Luma
                 {
                     auto& component = entity.AddOrReplaceComponent<CameraComponent>();
                     component.primary = componentIt->value("primary", component.primary);
+                    component.active = componentIt->value("active", component.active);
+                    component.projection = IntToEnum<CameraProjectionMode>(componentIt->value("projection", EnumToInt(component.projection)));
                     component.fovDegrees = componentIt->value("fovDegrees", component.fovDegrees);
+                    component.orthographicSize = componentIt->value("orthographicSize", component.orthographicSize);
                     component.nearClip = componentIt->value("nearClip", component.nearClip);
                     component.farClip = componentIt->value("farClip", component.farClip);
+                    component.sensorWidth = componentIt->value("sensorWidth", component.sensorWidth);
+                    component.sensorHeight = componentIt->value("sensorHeight", component.sensorHeight);
+                    component.focalLength = componentIt->value("focalLength", component.focalLength);
+                    component.useViewportAspectRatio = componentIt->value("useViewportAspectRatio", component.useViewportAspectRatio);
+                    component.aspectRatio = componentIt->value("aspectRatio", component.aspectRatio);
+                    component.constrainAspectRatio = componentIt->value("constrainAspectRatio", component.constrainAspectRatio);
+                    component.clearMode = IntToEnum<CameraClearMode>(componentIt->value("clearMode", EnumToInt(component.clearMode)));
+                    component.cullingMask = componentIt->value("cullingMask", component.cullingMask);
+                    component.hdr = componentIt->value("hdr", component.hdr);
+                    component.allowPostProcess = componentIt->value("allowPostProcess", component.allowPostProcess);
+                    component.allowMSAA = componentIt->value("allowMSAA", component.allowMSAA);
+                    component.allowMotionBlur = componentIt->value("allowMotionBlur", component.allowMotionBlur);
+                    component.exposure = componentIt->value("exposure", component.exposure);
+                    component.renderPriority = componentIt->value(
+                        "renderPriority",
+                        componentIt->value("priority", component.renderPriority));
+                    if (componentIt->contains("clearColor") &&
+                        !ReadArrayField(*componentIt, "clearColor", component.clearColor, outError))
+                    {
+                        return false;
+                    }
+                }
+
+                if (const auto componentIt = entityJson.find("luaScript");
+                    componentIt != entityJson.end() && componentIt->is_object())
+                {
+                    auto& component = entity.AddOrReplaceComponent<LuaScriptComponent>();
+                    component.enabled = componentIt->value("enabled", component.enabled);
+                    component.scriptAsset = componentIt->value("scriptAsset", component.scriptAsset);
                 }
 
                 if (const auto componentIt = entityJson.find("directionalLight");
@@ -925,6 +1104,32 @@ namespace Luma
                     {
                         return false;
                     }
+                }
+
+                if (const auto componentIt = entityJson.find("destructible");
+                    componentIt != entityJson.end() && componentIt->is_object())
+                {
+                    auto& component = entity.AddOrReplaceComponent<DestructibleComponent>();
+                    component.active = componentIt->value("active", component.active);
+                    component.blastAsset = componentIt->value("blastAsset", component.blastAsset);
+                    component.intactMeshOverride = componentIt->value("intactMeshOverride", component.intactMeshOverride);
+                    component.visibleIntactMesh = componentIt->value("visibleIntactMesh", component.visibleIntactMesh);
+                    component.fractureOnImpact = componentIt->value("fractureOnImpact", component.fractureOnImpact);
+                    component.accumulateDamage = componentIt->value("accumulateDamage", component.accumulateDamage);
+                    component.worldSupport = componentIt->value("worldSupport", component.worldSupport);
+                    component.stressDamage = componentIt->value("stressDamage", component.stressDamage);
+                    component.activationMode = IntToEnum<DestructionActivationMode>(
+                        componentIt->value("activationMode", EnumToInt(component.activationMode)));
+                    component.chunkSize = IntToEnum<DestructionChunkSize>(
+                        componentIt->value("chunkSize", EnumToInt(component.chunkSize)));
+                    component.desiredChunkCount = std::max(0, componentIt->value("desiredChunkCount", component.desiredChunkCount));
+                    component.damageThreshold = componentIt->value("damageThreshold", component.damageThreshold);
+                    component.impactDamageScale = componentIt->value("impactDamageScale", component.impactDamageScale);
+                    component.damageSpread = componentIt->value("damageSpread", component.damageSpread);
+                    component.chunkMassScale = componentIt->value("chunkMassScale", component.chunkMassScale);
+                    component.maxChunkSpeed = componentIt->value("maxChunkSpeed", component.maxChunkSpeed);
+                    component.debrisLifetime = componentIt->value("debrisLifetime", component.debrisLifetime);
+                    component.supportDepth = componentIt->value("supportDepth", component.supportDepth);
                 }
 
                 if (const auto componentIt = entityJson.find("rigidBody");
@@ -1091,10 +1296,28 @@ namespace Luma
                     component.radius = componentIt->value("radius", component.radius);
                     component.width = componentIt->value("width", component.width);
                     component.wheelMass = componentIt->value("wheelMass", component.wheelMass);
+                    component.suspensionRestLength = componentIt->value("suspensionRestLength", component.suspensionRestLength);
+                    component.suspensionMaxCompression = componentIt->value("suspensionMaxCompression", component.suspensionMaxCompression);
+                    component.suspensionMaxDroop = componentIt->value("suspensionMaxDroop", component.suspensionMaxDroop);
                     component.suspensionStiffness = componentIt->value("suspensionStiffness", component.suspensionStiffness);
                     component.suspensionDamping = componentIt->value("suspensionDamping", component.suspensionDamping);
                     component.suspensionTravel = componentIt->value("suspensionTravel", component.suspensionTravel);
                     component.tireFriction = componentIt->value("tireFriction", component.tireFriction);
+                    component.tireFrictionScale = componentIt->value("tireFrictionScale", component.tireFrictionScale);
+                    component.steerable = componentIt->value("steerable", component.steerable);
+                    component.driven = componentIt->value("driven", component.driven);
+                    component.handbrakeAffected = componentIt->value("handbrakeAffected", component.handbrakeAffected);
+                    component.axleType = IntToEnum<VehicleAxleType>(componentIt->value("axleType", EnumToInt(component.axleType)));
+                    component.visualWheelEntity = componentIt->value("visualWheelEntity", component.visualWheelEntity);
+                    if ((componentIt->contains("suspensionAttachPoint") &&
+                            !ReadArrayField(*componentIt, "suspensionAttachPoint", component.suspensionAttachPoint, outError)) ||
+                        (componentIt->contains("wheelRotationAxis") &&
+                            !ReadArrayField(*componentIt, "wheelRotationAxis", component.wheelRotationAxis, outError)) ||
+                        (componentIt->contains("suspensionAxis") &&
+                            !ReadArrayField(*componentIt, "suspensionAxis", component.suspensionAxis, outError)))
+                    {
+                        return false;
+                    }
                 }
 
                 if (const auto componentIt = entityJson.find("vehicle");
@@ -1102,21 +1325,66 @@ namespace Luma
                 {
                     auto& component = entity.AddOrReplaceComponent<VehicleComponent>();
                     component.active = componentIt->value("active", component.active);
+                    component.simulationEnabled = componentIt->value("simulationEnabled", component.simulationEnabled);
+                    component.vehicleType = IntToEnum<VehicleType>(componentIt->value("vehicleType", EnumToInt(component.vehicleType)));
+                    component.inputSource = IntToEnum<VehicleInputSource>(componentIt->value("inputSource", EnumToInt(component.inputSource)));
+                    component.useCenterOfMassOverride = componentIt->value("useCenterOfMassOverride", component.useCenterOfMassOverride);
                     component.chassisRigidBody = componentIt->value("chassisRigidBody", component.chassisRigidBody);
                     component.wheelEntities = componentIt->value("wheelEntities", component.wheelEntities);
+                    component.dragCoefficient = componentIt->value("dragCoefficient", component.dragCoefficient);
+                    component.rollingResistance = componentIt->value("rollingResistance", component.rollingResistance);
+                    component.aeroDownforce = componentIt->value("aeroDownforce", component.aeroDownforce);
                     component.engineTorque = componentIt->value("engineTorque", component.engineTorque);
+                    component.idleRPM = componentIt->value("idleRPM", component.idleRPM);
                     component.maxRPM = componentIt->value("maxRPM", component.maxRPM);
-                    component.gearRatio = componentIt->value("gearRatio", component.gearRatio);
+                    component.reverseGearRatio = componentIt->value("reverseGearRatio", component.reverseGearRatio);
+                    component.gearRatios = componentIt->value("gearRatios", component.gearRatios);
+                    if (component.gearRatios.empty())
+                    {
+                        component.gearRatios.push_back(componentIt->value("gearRatio", 3.5f));
+                    }
                     component.differentialRatio = componentIt->value("differentialRatio", component.differentialRatio);
+                    component.brakeForce = componentIt->value("brakeForce", component.brakeForce);
+                    component.handbrakeForce = componentIt->value("handbrakeForce", component.handbrakeForce);
+                    component.frontBrakeBias = componentIt->value("frontBrakeBias", component.frontBrakeBias);
+                    component.frontDriveBias = componentIt->value("frontDriveBias", component.frontDriveBias);
                     component.tireFrictionScale = componentIt->value("tireFrictionScale", component.tireFrictionScale);
                     component.suspensionStiffness = componentIt->value("suspensionStiffness", component.suspensionStiffness);
                     component.suspensionDamping = componentIt->value("suspensionDamping", component.suspensionDamping);
                     component.suspensionTravel = componentIt->value("suspensionTravel", component.suspensionTravel);
                     component.maxSteerAngleDegrees = componentIt->value("maxSteerAngleDegrees", component.maxSteerAngleDegrees);
                     component.steerSensitivity = componentIt->value("steerSensitivity", component.steerSensitivity);
+                    component.shiftUpRPM = componentIt->value("shiftUpRPM", component.shiftUpRPM);
+                    component.shiftDownRPM = componentIt->value("shiftDownRPM", component.shiftDownRPM);
+                    component.automaticTransmission = componentIt->value("automaticTransmission", component.automaticTransmission);
                     component.enableABS = componentIt->value("enableABS", component.enableABS);
                     component.enableTCS = componentIt->value("enableTCS", component.enableTCS);
+                    component.ackermannSteering = componentIt->value("ackermannSteering", component.ackermannSteering);
+                    component.autoFlip = componentIt->value("autoFlip", component.autoFlip);
+                    component.useSubstepping = componentIt->value("useSubstepping", component.useSubstepping);
+                    component.sleepWhenInactive = componentIt->value("sleepWhenInactive", component.sleepWhenInactive);
                     component.inputMap = componentIt->value("inputMap", component.inputMap);
+                    component.tuningAsset = componentIt->value("tuningAsset", component.tuningAsset);
+                    if (componentIt->contains("centerOfMassOffset") &&
+                        !ReadArrayField(*componentIt, "centerOfMassOffset", component.centerOfMassOffset, outError))
+                    {
+                        return false;
+                    }
+                }
+
+                if (const auto componentIt = entityJson.find("vehicleInput");
+                    componentIt != entityJson.end() && componentIt->is_object())
+                {
+                    auto& component = entity.AddOrReplaceComponent<VehicleInputComponent>();
+                    component.active = componentIt->value("active", component.active);
+                    component.throttle = componentIt->value("throttle", component.throttle);
+                    component.brake = componentIt->value("brake", component.brake);
+                    component.steering = componentIt->value("steering", component.steering);
+                    component.handbrake = componentIt->value("handbrake", component.handbrake);
+                    component.clutch = componentIt->value("clutch", component.clutch);
+                    component.gearUpRequested = componentIt->value("gearUpRequested", component.gearUpRequested);
+                    component.gearDownRequested = componentIt->value("gearDownRequested", component.gearDownRequested);
+                    component.resetRequested = componentIt->value("resetRequested", component.resetRequested);
                 }
 
                 if (const auto componentIt = entityJson.find("forceField");

@@ -76,6 +76,20 @@ namespace Luma
             seed ^= value + 0x9e3779b9u + (seed << 6u) + (seed >> 2u);
         }
 
+        Color ToColor(const std::array<float, 4>& value)
+        {
+            return { value[0], value[1], value[2], value[3] };
+        }
+
+        bool ColorsDiffer(const Color& lhs, const Color& rhs, const float epsilon = 1.0e-5f)
+        {
+            return
+                std::abs(lhs.r - rhs.r) > epsilon ||
+                std::abs(lhs.g - rhs.g) > epsilon ||
+                std::abs(lhs.b - rhs.b) > epsilon ||
+                std::abs(lhs.a - rhs.a) > epsilon;
+        }
+
         struct ShadowPerDrawData
         {
             float viewProjection[16] = {
@@ -1372,6 +1386,13 @@ namespace Luma
                 }
                 m_LightingSystem.SetPostProcess(postProcess);
 
+                const Color desiredSceneClearColor = ToColor(sceneView.clearColor);
+                if (ColorsDiffer(desiredSceneClearColor, m_SceneClearColor))
+                {
+                    m_SceneClearColor = desiredSceneClearColor;
+                    DestroyScenePassResources();
+                }
+
                 bool scenePassRebuilt = false;
                 if (!EnsureScenePassResources(sceneView.outputWidth, sceneView.outputHeight, &scenePassRebuilt))
                 {
@@ -1550,7 +1571,7 @@ namespace Luma
                 sceneColorTargetDesc.height = targetHeight;
                 sceneColorTargetDesc.format = GpuTextureFormat::RGBA16F;
                 sceneColorTargetDesc.srgb = false;
-                sceneColorTargetDesc.clearColor = GetClearColor();
+                sceneColorTargetDesc.clearColor = m_SceneClearColor;
                 m_SceneColorRenderTarget = m_ResourceManager->CreateRenderTarget(sceneColorTargetDesc);
                 if (m_SceneColorRenderTarget == InvalidResourceHandle)
                 {
@@ -1570,7 +1591,7 @@ namespace Luma
 
                 RenderPassDesc sceneRenderPassDesc;
                 sceneRenderPassDesc.debugName = std::string(GetDebugName()) + ".ScenePass";
-                sceneRenderPassDesc.clearColor = GetClearColor();
+                sceneRenderPassDesc.clearColor = m_SceneClearColor;
                 sceneRenderPassDesc.framebuffer = m_SceneFramebuffer;
                 m_SceneRenderPass = m_ResourceManager->CreateRenderPass(sceneRenderPassDesc);
                 if (m_SceneRenderPass == InvalidResourceHandle)
@@ -3502,6 +3523,7 @@ namespace Luma
                 0.0f, 0.0f, 0.0f, 1.0f
             };
             std::array<float, 3> m_CameraWorldPosition { 0.0f, 0.0f, 5.0f };
+            Color m_SceneClearColor = { 0.05f, 0.07f, 0.12f, 1.0f };
             float m_CurrentAutoExposureEV = 0.0f;
             float m_LastAutoExposureTimeSeconds = 0.0f;
             bool m_AutoExposureInitialized = false;

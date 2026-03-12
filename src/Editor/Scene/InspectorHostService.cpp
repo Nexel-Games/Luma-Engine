@@ -31,6 +31,8 @@ namespace Luma::Editor
             context.entityPanel,
             context.meshRendererPanel,
             context.cameraLightingPanel,
+            context.scriptPanel,
+            context.destructionPanel,
             context.physicsPanel,
             context.jointPanel,
             context.advancedPhysicsPanel,
@@ -40,6 +42,7 @@ namespace Luma::Editor
             context.environmentEffectsPanel,
             context.materialPanel,
             context.addComponentPanel,
+            context.availableTags,
             [this, contentRoots = context.contentRoots]()
             {
                 return ListContentRootPaths(contentRoots);
@@ -60,7 +63,8 @@ namespace Luma::Editor
             },
             context.initializeSkyLightDefaults,
             context.initializePostProcessDefaults,
-            context.isSelectionValid
+            context.isSelectionValid,
+            context.setContentStatus
         });
     }
 

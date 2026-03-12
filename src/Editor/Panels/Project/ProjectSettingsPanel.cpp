@@ -1,6 +1,8 @@
 #include "Luma/Editor/Panels/Project/ProjectSettingsPanel.h"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <sstream>
@@ -10,44 +12,16 @@
 #include <imgui.h>
 
 #include "Luma/Core/App/Project.h"
+#include "Luma/Core/App/Application.h"
+#include "Luma/Editor/Core/GameplayInputBindingService.h"
 #include "Luma/Editor/UI/TooltipAPI.h"
 #include "Luma/Input/Input.h"
+#include "Luma/Scene/VehicleInputActions.h"
 
 namespace Luma::Editor
 {
     namespace
     {
-        constexpr std::string_view kGameplayInputContext = "Gameplay.Default";
-        constexpr std::string_view kGameplayActionMoveForward = "Gameplay.MoveForward";
-        constexpr std::string_view kGameplayActionMoveBackward = "Gameplay.MoveBackward";
-        constexpr std::string_view kGameplayActionMoveLeft = "Gameplay.MoveLeft";
-        constexpr std::string_view kGameplayActionMoveRight = "Gameplay.MoveRight";
-        constexpr std::string_view kGameplayActionSprint = "Gameplay.Sprint";
-        constexpr std::string_view kGameplayActionLookX = "Gameplay.LookX";
-        constexpr std::string_view kGameplayActionLookY = "Gameplay.LookY";
-        constexpr std::string_view kGameplayActionPrimaryFire = "Gameplay.PrimaryFire";
-        constexpr std::string_view kGameplayActionAim = "Gameplay.Aim";
-
-        struct InputActionSettingsEntry
-        {
-            const char* label = "";
-            std::string_view context;
-            std::string_view action;
-            bool allowAxes = false;
-        };
-
-        constexpr std::array<InputActionSettingsEntry, 9> kGameplayInputActionSettingsEntries = {
-            InputActionSettingsEntry { "Move Forward", kGameplayInputContext, kGameplayActionMoveForward, false },
-            InputActionSettingsEntry { "Move Backward", kGameplayInputContext, kGameplayActionMoveBackward, false },
-            InputActionSettingsEntry { "Move Left", kGameplayInputContext, kGameplayActionMoveLeft, false },
-            InputActionSettingsEntry { "Move Right", kGameplayInputContext, kGameplayActionMoveRight, false },
-            InputActionSettingsEntry { "Sprint", kGameplayInputContext, kGameplayActionSprint, false },
-            InputActionSettingsEntry { "Look X", kGameplayInputContext, kGameplayActionLookX, true },
-            InputActionSettingsEntry { "Look Y", kGameplayInputContext, kGameplayActionLookY, true },
-            InputActionSettingsEntry { "Primary Fire", kGameplayInputContext, kGameplayActionPrimaryFire, false },
-            InputActionSettingsEntry { "Aim", kGameplayInputContext, kGameplayActionAim, false }
-        };
-
         void ShowItemTooltip(const std::string_view tooltip)
         {
             UI::Tooltip::Show(tooltip);
@@ -110,6 +84,12 @@ namespace Luma::Editor
         {
             switch (key)
             {
+            case KeyCode::Space:
+                return "Space";
+            case KeyCode::C:
+                return "C";
+            case KeyCode::R:
+                return "R";
             case KeyCode::W:
                 return "W";
             case KeyCode::A:
@@ -259,6 +239,15 @@ namespace Luma::Editor
 
             return label;
         }
+
+        bool HasVehicleBindings(const std::string_view contextName)
+        {
+            return !Input::GetActionBindings(contextName, VehicleInputActions::Throttle).empty() ||
+                !Input::GetActionBindings(contextName, VehicleInputActions::Steer).empty() ||
+                !Input::GetActionBindings(contextName, VehicleInputActions::Brake).empty() ||
+                !Input::GetActionBindings(contextName, VehicleInputActions::Handbrake).empty() ||
+                !Input::GetActionBindings(contextName, VehicleInputActions::Reset).empty();
+        }
     }
 
     void ProjectSettingsPanel::Draw(bool* open, const ProjectSettingsPanelContext& context)
@@ -281,9 +270,15 @@ namespace Luma::Editor
         }
         ShowItemTooltip("Project-wide configuration: metadata, rendering profile, and build profiles.");
 
-        if (SelectableWithTooltip("Input System", m_SectionIndex == 1))
+        if (SelectableWithTooltip("Layers", m_SectionIndex == 1))
         {
             m_SectionIndex = 1;
+        }
+        ShowItemTooltip("Manage project-wide entity tags used by the inspector.");
+
+        if (SelectableWithTooltip("Input System", m_SectionIndex == 2))
+        {
+            m_SectionIndex = 2;
         }
         ShowItemTooltip("Gameplay action bindings and input rebind controls.");
         ImGui::EndChild();
@@ -293,6 +288,10 @@ namespace Luma::Editor
         if (m_SectionIndex == 0)
         {
             DrawProjectSection(context);
+        }
+        else if (m_SectionIndex == 1)
+        {
+            DrawLayersSection(context);
         }
         else
         {
@@ -309,6 +308,7 @@ namespace Luma::Editor
         m_SectionIndex = 0;
         m_Draft = {};
         ClearInputCapture();
+        m_NewTagName.clear();
     }
 
     void ProjectSettingsPanel::InvalidateDraft()
@@ -402,6 +402,10 @@ namespace Luma::Editor
         {
             if (Project::UpdateSettings(m_Draft, true))
             {
+                if (Application* app = Application::Get(); app != nullptr)
+                {
+                    app->GetRenderer().SetVSyncEnabled(Project::GetConfig().vsync);
+                }
                 m_DraftInitialized = false;
                 if (context.setProjectConfigStatus)
                 {
@@ -481,6 +485,23 @@ namespace Luma::Editor
 
         ImGui::Spacing();
 
+        std::vector<std::string> vehicleContexts;
+        for (const InputContextDesc& registeredContext : Input::GetRegisteredContexts())
+        {
+            if (registeredContext.name == VehicleInputActions::Context || HasVehicleBindings(registeredContext.name))
+            {
+                vehicleContexts.push_back(registeredContext.name);
+            }
+        }
+        if (vehicleContexts.empty())
+        {
+            vehicleContexts.push_back(std::string(VehicleInputActions::Context));
+        }
+        if (std::find(vehicleContexts.begin(), vehicleContexts.end(), m_SelectedVehicleInputMap) == vehicleContexts.end())
+        {
+            m_SelectedVehicleInputMap = vehicleContexts.front();
+        }
+
         if (!m_InputCapture.action.empty() && !m_InputCapture.context.empty())
         {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.88f, 0.72f, 0.30f, 1.0f));
@@ -530,8 +551,16 @@ namespace Luma::Editor
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthFixed, 90.0f);
             ImGui::TableHeadersRow();
 
-            for (const InputActionSettingsEntry& entry : kGameplayInputActionSettingsEntries)
+            std::size_t inputEntryCount = 0;
+            const InputActionSettingsEntry* inputEntries =
+                GameplayInputBindingService::GetDefaultInputActionSettingsEntries(inputEntryCount);
+            for (std::size_t inputEntryIndex = 0; inputEntryIndex < inputEntryCount; ++inputEntryIndex)
             {
+                const InputActionSettingsEntry& entry = inputEntries[inputEntryIndex];
+                if (GameplayInputBindingService::IsVehicleInputAction(entry.action))
+                {
+                    continue;
+                }
                 ImGui::TableNextRow();
                 ImGui::PushID(entry.label);
 
@@ -599,6 +628,355 @@ namespace Luma::Editor
             }
 
             ImGui::EndTable();
+        }
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Vehicle Input Maps");
+
+        if (!vehicleContexts.empty())
+        {
+            std::vector<const char*> vehicleContextLabels;
+            vehicleContextLabels.reserve(vehicleContexts.size());
+            int selectedVehicleContextIndex = 0;
+            for (std::size_t i = 0; i < vehicleContexts.size(); ++i)
+            {
+                vehicleContextLabels.push_back(vehicleContexts[i].c_str());
+                if (vehicleContexts[i] == m_SelectedVehicleInputMap)
+                {
+                    selectedVehicleContextIndex = static_cast<int>(i);
+                }
+            }
+
+            if (ComboWithTooltip("Active Vehicle Map", &selectedVehicleContextIndex, vehicleContextLabels.data(), static_cast<int>(vehicleContextLabels.size())))
+            {
+                selectedVehicleContextIndex = std::clamp(selectedVehicleContextIndex, 0, static_cast<int>(vehicleContexts.size()) - 1);
+                m_SelectedVehicleInputMap = vehicleContexts[static_cast<std::size_t>(selectedVehicleContextIndex)];
+            }
+            ShowItemTooltip("Select which vehicle input map to view and edit.");
+        }
+
+        std::vector<char> newVehicleMapBuffer(128, '\0');
+        std::snprintf(newVehicleMapBuffer.data(), newVehicleMapBuffer.size(), "%s", m_NewVehicleInputMapName.c_str());
+        if (InputTextWithTooltip("New Vehicle Map", newVehicleMapBuffer.data(), newVehicleMapBuffer.size()))
+        {
+            m_NewVehicleInputMapName = newVehicleMapBuffer.data();
+        }
+        ShowItemTooltip("Enter a new vehicle input context name.");
+
+        if (ButtonWithTooltip("Create Vehicle Map"))
+        {
+            if (!m_NewVehicleInputMapName.empty())
+            {
+                GameplayInputBindingService::ResetVehicleInputBindings(m_NewVehicleInputMapName);
+                m_SelectedVehicleInputMap = m_NewVehicleInputMapName;
+                m_NewVehicleInputMapName.clear();
+                if (context.setProjectInputStatus)
+                {
+                    context.setProjectInputStatus("Created vehicle input map: " + m_SelectedVehicleInputMap);
+                }
+            }
+            else if (context.setProjectInputStatus)
+            {
+                context.setProjectInputStatus("Vehicle input map name cannot be empty.");
+            }
+        }
+        ShowItemTooltip("Create a new named vehicle input map cloned from Vehicle.Default.");
+
+        ImGui::SameLine();
+        if (ButtonWithTooltip("Reset Selected Vehicle Map"))
+        {
+            GameplayInputBindingService::ResetVehicleInputBindings(m_SelectedVehicleInputMap);
+            if (context.setProjectInputStatus)
+            {
+                context.setProjectInputStatus("Reset vehicle input map: " + m_SelectedVehicleInputMap);
+            }
+        }
+        ShowItemTooltip("Restore the selected vehicle map to the default vehicle bindings.");
+
+        if (m_SelectedVehicleInputMap != VehicleInputActions::Context)
+        {
+            ImGui::SameLine();
+            if (ButtonWithTooltip("Delete Selected Vehicle Map"))
+            {
+                Input::RemoveContext(m_SelectedVehicleInputMap);
+                m_SelectedVehicleInputMap = std::string(VehicleInputActions::Context);
+                if (context.setProjectInputStatus)
+                {
+                    context.setProjectInputStatus("Deleted custom vehicle input map.");
+                }
+            }
+            ShowItemTooltip("Delete the selected custom vehicle input map.");
+        }
+
+        if (ImGui::BeginTable("VehicleInputSystemBindings", 4, tableFlags))
+        {
+            ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+            ImGui::TableSetupColumn("Context", ImGuiTableColumnFlags_WidthFixed, 180.0f);
+            ImGui::TableSetupColumn("Bindings", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+            ImGui::TableHeadersRow();
+
+            std::size_t inputEntryCount = 0;
+            const InputActionSettingsEntry* inputEntries =
+                GameplayInputBindingService::GetDefaultInputActionSettingsEntries(inputEntryCount);
+            for (std::size_t inputEntryIndex = 0; inputEntryIndex < inputEntryCount; ++inputEntryIndex)
+            {
+                const InputActionSettingsEntry& entry = inputEntries[inputEntryIndex];
+                if (!GameplayInputBindingService::IsVehicleInputAction(entry.action))
+                {
+                    continue;
+                }
+
+                ImGui::TableNextRow();
+                ImGui::PushID((std::string("VehicleMap.") + entry.label).c_str());
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(entry.label);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("%s", m_SelectedVehicleInputMap.c_str());
+
+                ImGui::TableSetColumnIndex(2);
+                const std::vector<InputBinding> bindings = Input::GetActionBindings(m_SelectedVehicleInputMap, entry.action);
+                if (bindings.empty())
+                {
+                    ImGui::TextDisabled("Unbound");
+                    ImGui::SameLine();
+                    if (SmallButtonWithTooltip("Set"))
+                    {
+                        m_InputCapture.context = m_SelectedVehicleInputMap;
+                        m_InputCapture.action = std::string(entry.action);
+                        m_InputCapture.bindingIndex = 0;
+                        m_InputCapture.isAppend = true;
+                        m_InputCapture.allowAxes = entry.allowAxes;
+                    }
+                    ShowItemTooltip("Set the first binding for this vehicle action.");
+                }
+                else
+                {
+                    for (std::size_t bindingIndex = 0; bindingIndex < bindings.size(); ++bindingIndex)
+                    {
+                        if (bindingIndex > 0)
+                        {
+                            ImGui::SameLine();
+                        }
+
+                        std::string bindingButtonLabel = BindingToLabel(bindings[bindingIndex]);
+                        bindingButtonLabel += "##VehicleBinding";
+                        bindingButtonLabel += std::to_string(bindingIndex);
+                        if (SmallButtonWithTooltip(bindingButtonLabel.c_str()))
+                        {
+                            m_InputCapture.context = m_SelectedVehicleInputMap;
+                            m_InputCapture.action = std::string(entry.action);
+                            m_InputCapture.bindingIndex = bindingIndex;
+                            m_InputCapture.isAppend = false;
+                            m_InputCapture.allowAxes = entry.allowAxes;
+                        }
+                        ShowItemTooltip("Rebind this vehicle input mapping.");
+                    }
+
+                    ImGui::SameLine();
+                    if (SmallButtonWithTooltip("+"))
+                    {
+                        m_InputCapture.context = m_SelectedVehicleInputMap;
+                        m_InputCapture.action = std::string(entry.action);
+                        m_InputCapture.bindingIndex = bindings.size();
+                        m_InputCapture.isAppend = true;
+                        m_InputCapture.allowAxes = entry.allowAxes;
+                    }
+                    ShowItemTooltip("Add an additional binding to this vehicle action.");
+                }
+
+                ImGui::TableSetColumnIndex(3);
+                ImGui::Text("%.2f", Input::GetActionValue(m_SelectedVehicleInputMap, entry.action));
+
+                ImGui::PopID();
+            }
+
+            ImGui::EndTable();
+        }
+    }
+
+    void ProjectSettingsPanel::DrawLayersSection(const ProjectSettingsPanelContext& context)
+    {
+        if (!Project::IsLoaded())
+        {
+            ImGui::TextDisabled("No loaded project.");
+            return;
+        }
+
+        SyncDraftFromLoaded();
+
+        ImGui::TextUnformatted("Entity Tags");
+        ImGui::Separator();
+        ImGui::TextWrapped("All new entities default to the Untagged tag. Add project-specific tags here for the entity inspector.");
+
+        std::vector<char> newTagBuffer(128, '\0');
+        std::snprintf(newTagBuffer.data(), newTagBuffer.size(), "%s", m_NewTagName.c_str());
+        if (InputTextWithTooltip("New Tag", newTagBuffer.data(), newTagBuffer.size()))
+        {
+            m_NewTagName = newTagBuffer.data();
+        }
+        ShowItemTooltip("Enter a new entity tag name.");
+
+        ImGui::SameLine();
+        if (ButtonWithTooltip("Add Tag"))
+        {
+            auto normalized = m_NewTagName;
+            normalized.erase(normalized.begin(), std::find_if(normalized.begin(), normalized.end(), [](unsigned char ch)
+            {
+                return !std::isspace(ch);
+            }));
+            normalized.erase(std::find_if(normalized.rbegin(), normalized.rend(), [](unsigned char ch)
+            {
+                return !std::isspace(ch);
+            }).base(), normalized.end());
+
+            if (normalized.empty())
+            {
+                if (context.setProjectConfigStatus)
+                {
+                    context.setProjectConfigStatus("Tag name cannot be empty.");
+                }
+            }
+            else
+            {
+                const auto exists = std::find_if(
+                    m_Draft.tags.begin(),
+                    m_Draft.tags.end(),
+                    [&normalized](const std::string& existing)
+                    {
+                        if (existing.size() != normalized.size())
+                        {
+                            return false;
+                        }
+                        for (std::size_t i = 0; i < existing.size(); ++i)
+                        {
+                            if (std::tolower(static_cast<unsigned char>(existing[i])) !=
+                                std::tolower(static_cast<unsigned char>(normalized[i])))
+                            {
+                                return false;
+                            }
+                        }
+                        return true;
+                    });
+                if (exists != m_Draft.tags.end())
+                {
+                    if (context.setProjectConfigStatus)
+                    {
+                        context.setProjectConfigStatus("Tag already exists: " + normalized);
+                    }
+                }
+                else
+                {
+                    m_Draft.tags.push_back(normalized);
+                    m_NewTagName.clear();
+                    if (context.setProjectConfigStatus)
+                    {
+                        context.setProjectConfigStatus("Added tag: " + normalized);
+                    }
+                }
+            }
+        }
+        ShowItemTooltip("Add a new tag to this project.");
+
+        ImGui::Spacing();
+        const ImGuiTableFlags tableFlags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable;
+        if (ImGui::BeginTable("ProjectTagsTable", 2, tableFlags))
+        {
+            ImGui::TableSetupColumn("Tag", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+            ImGui::TableHeadersRow();
+
+            constexpr std::array<std::string_view, 4> defaultTags = {
+                "Untagged",
+                "Player",
+                "MainCamera",
+                "GameController"
+            };
+
+            for (std::size_t tagIndex = 0; tagIndex < m_Draft.tags.size(); ++tagIndex)
+            {
+                std::string& tag = m_Draft.tags[tagIndex];
+                ImGui::TableNextRow();
+                ImGui::PushID(static_cast<int>(tagIndex));
+
+                ImGui::TableSetColumnIndex(0);
+                std::vector<char> tagBuffer(128, '\0');
+                std::snprintf(tagBuffer.data(), tagBuffer.size(), "%s", tag.c_str());
+                const bool isDefaultTag = std::find(defaultTags.begin(), defaultTags.end(), std::string_view(tag)) != defaultTags.end();
+                if (isDefaultTag)
+                {
+                    ImGui::TextUnformatted(tag.c_str());
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(Default)");
+                }
+                else if (InputTextWithTooltip("##TagName", tagBuffer.data(), tagBuffer.size()))
+                {
+                    tag = tagBuffer.data();
+                }
+
+                ImGui::TableSetColumnIndex(1);
+                if (isDefaultTag)
+                {
+                    ImGui::TextDisabled("Locked");
+                }
+                else if (SmallButtonWithTooltip("Remove"))
+                {
+                    const std::string removedTag = tag;
+                    m_Draft.tags.erase(m_Draft.tags.begin() + static_cast<std::ptrdiff_t>(tagIndex));
+                    if (context.setProjectConfigStatus)
+                    {
+                        context.setProjectConfigStatus("Removed tag: " + removedTag);
+                    }
+                    ImGui::PopID();
+                    break;
+                }
+
+                ImGui::PopID();
+            }
+
+            ImGui::EndTable();
+        }
+
+        ImGui::Spacing();
+        if (ButtonWithTooltip("Save Project Settings"))
+        {
+            if (Project::UpdateSettings(m_Draft, true))
+            {
+                m_DraftInitialized = false;
+                if (context.setProjectConfigStatus)
+                {
+                    context.setProjectConfigStatus("Project settings saved.");
+                }
+                if (context.onProjectConfigSaved)
+                {
+                    context.onProjectConfigSaved();
+                }
+            }
+            else if (context.setProjectConfigStatus)
+            {
+                context.setProjectConfigStatus("Failed to save project settings.");
+            }
+        }
+        ShowItemTooltip("Save the current tag list to the project file.");
+
+        ImGui::SameLine();
+        if (ButtonWithTooltip("Reload"))
+        {
+            m_DraftInitialized = false;
+            SyncDraftFromLoaded();
+            if (context.setProjectConfigStatus)
+            {
+                context.setProjectConfigStatus("Project settings reloaded.");
+            }
+        }
+        ShowItemTooltip("Reload tags from disk and discard unsaved changes.");
+
+        const std::string_view configStatus = context.getProjectConfigStatus ? context.getProjectConfigStatus() : std::string_view {};
+        if (!configStatus.empty())
+        {
+            ImGui::TextDisabled("%.*s", static_cast<int>(configStatus.size()), configStatus.data());
         }
     }
 

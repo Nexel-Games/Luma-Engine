@@ -163,8 +163,8 @@ namespace Luma::Editor
                     [&](const bool changed, const bool affectsSkyVisual = false, const bool rebuildIbl = false)
                     {
                         skyLightChanged |= changed;
+                        skyVisualCommitRequested |= changed && affectsSkyVisual;
                         const bool committed = ImGui::IsItemDeactivatedAfterEdit() || (changed && !ImGui::IsItemActive());
-                        skyVisualCommitRequested |= committed && affectsSkyVisual;
                         skyIblRebuildRequested |= committed && rebuildIbl;
                     };
 

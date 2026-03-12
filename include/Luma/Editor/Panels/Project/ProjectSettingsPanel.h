@@ -39,6 +39,7 @@ namespace Luma::Editor
         };
 
         void DrawProjectSection(const ProjectSettingsPanelContext& context);
+        void DrawLayersSection(const ProjectSettingsPanelContext& context);
         void DrawInputSystemSection(const ProjectSettingsPanelContext& context);
         static void DrawBuildProfileEditor(
             const char* label,
@@ -51,5 +52,8 @@ namespace Luma::Editor
         int m_SectionIndex = 0;
         Project::ProjectConfig m_Draft {};
         InputCaptureState m_InputCapture {};
+        std::string m_SelectedVehicleInputMap = "Vehicle.Default";
+        std::string m_NewVehicleInputMapName {};
+        std::string m_NewTagName {};
     };
 }

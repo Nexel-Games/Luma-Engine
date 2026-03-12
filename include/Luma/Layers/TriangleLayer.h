@@ -51,6 +51,7 @@
 #include "Luma/Editor/Panels/Chrome/FooterBarPanel.h"
 #include "Luma/Editor/Panels/Rendering/GPUResourcesPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorCameraLightingPanel.h"
+#include "Luma/Editor/Panels/Inspector/InspectorDestructionPanel.h"
 #include "Luma/Editor/Panels/Content/ContentBrowserPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorAdvancedPhysicsPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorAddComponentPanel.h"
@@ -64,6 +65,7 @@
 #include "Luma/Editor/Panels/Inspector/InspectorPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorPhysicsEventsPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorPhysicsPanel.h"
+#include "Luma/Editor/Panels/Inspector/InspectorScriptPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorVehiclePhysicsPanel.h"
 #include "Luma/Editor/Panels/Packages/PackageManagerPanel.h"
 #include "Luma/Editor/Packages/PackageManagerHostFacadeService.h"
@@ -97,17 +99,35 @@
 #include "Luma/Physics/PhysicsSystem.h"
 #include "Luma/Renderer/PrimitiveMeshFactory.h"
 #include "Luma/RHI/GPUResourceManager.h"
+#include "Luma/Scene/EditorRuntimeOnlyComponent.h"
 #include "Luma/Scene/MaterialComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
 #include "Luma/Scene/PostProcessComponent.h"
 #include "Luma/Scene/Scene.h"
 #include "Luma/Scene/SkyLightComponent.h"
 #include "Luma/Scene/TransformComponent.h"
+#include "Luma/Scripting/LuaScriptRuntime.h"
 
 namespace Luma
 {
     enum class LogLevel : int;
     class IRenderPipeline;
+
+    enum class EditorPlayState : std::uint8_t
+    {
+        Stopped = 0,
+        Playing,
+        Paused
+    };
+
+    struct CameraActorMeshState
+    {
+        bool loadAttempted = false;
+        bool loadFailed = false;
+        std::filesystem::path resolvedPath;
+        std::vector<Assets::MeshScenePart> parts;
+        std::vector<MeshDesc> meshes;
+    };
 
     class TriangleLayer final : public Layer
     {
@@ -144,6 +164,10 @@ namespace Luma
         void DrawFooter();
         void DrawGPUResourcesPanel();
         void DrawInspectorPanel();
+        void EnterPlayMode();
+        void TogglePausePlayMode();
+        bool StopPlayMode();
+        EntityID EnsurePlayModeGameCameraEntity();
         EntityID CreateEntityFromTemplate(Editor::EntityTemplateKind templateKind, EntityID parentEntity = entt::null);
         EntityID CreateEntityFromMeshAsset(
             const std::filesystem::path& assetPath,
@@ -209,6 +233,11 @@ namespace Luma
         void RefreshWindowTitle();
         void SeedDefaultSceneEntities();
         bool IsSelectionValid() const;
+        bool IsPlayModeActive() const;
+        bool IsPlayModePaused() const;
+        bool IsSceneSimulationEnabled() const;
+        std::vector<UUID> CaptureSelectedEntityUuids() const;
+        void RestoreSelectedEntityUuids(const std::vector<UUID>& selectionUuids, UUID primarySelectionUuid);
         Editor::SceneRenderCacheStateContext BuildSceneRenderCacheStateContext() const;
         Editor::SkyPreviewTextureHostContext BuildSkyPreviewTextureHostContext();
 
@@ -300,6 +329,7 @@ namespace Luma
         Editor::InspectorAddComponentPanel m_InspectorAddComponentPanel;
         Editor::InspectorAdvancedPhysicsPanel m_InspectorAdvancedPhysicsPanel;
         Editor::InspectorCameraLightingPanel m_InspectorCameraLightingPanel;
+        Editor::InspectorDestructionPanel m_InspectorDestructionPanel;
         Editor::InspectorEntityPanel m_InspectorEntityPanel;
         Editor::InspectorEnvironmentEffectsPanel m_InspectorEnvironmentEffectsPanel;
         Editor::InspectorFieldBuoyancyPanel m_InspectorFieldBuoyancyPanel;
@@ -309,6 +339,7 @@ namespace Luma
         Editor::InspectorPanel m_InspectorPanel;
         Editor::InspectorPhysicsEventsPanel m_InspectorPhysicsEventsPanel;
         Editor::InspectorPhysicsPanel m_InspectorPhysicsPanel;
+        Editor::InspectorScriptPanel m_InspectorScriptPanel;
         Editor::InspectorVehiclePhysicsPanel m_InspectorVehiclePhysicsPanel;
         Editor::MaterialTextureAssetPickerPanel m_MaterialTextureAssetPickerPanel;
         Editor::MaterialRenderProxyCacheService m_MaterialRenderProxyCacheService;
@@ -345,6 +376,7 @@ namespace Luma
         using ImportedScenePartsState = Editor::MeshStreamingImportedScenePartsState;
         std::unordered_map<std::string, ImportedScenePartsState> m_ImportedSceneParts;
         std::unordered_map<std::string, StreamedMeshAssetState> m_StreamedMeshAssets;
+        CameraActorMeshState m_CameraActorMeshState;
         Editor::MeshStreamingGeometryService m_MeshStreamingGeometryService;
         EditorTaskHandle m_StreamingTask = 0;
         bool m_StreamingTaskActive = false;
@@ -370,7 +402,13 @@ namespace Luma
         Editor::SceneRenderCacheDirtyFlags m_RenderSceneCacheDirtyFlags = Editor::SceneRenderCacheDirtyFlags::All;
         bool m_LastViewportGridEnabled = true;
         std::string m_LastSkyMeshSignature;
-
+        EditorPlayState m_PlayState = EditorPlayState::Stopped;
+        std::string m_PlaySceneSnapshot;
+        std::vector<UUID> m_PlaySelectedEntityUuids;
+        UUID m_PlayPrimarySelectedEntityUuid = 0;
+        std::filesystem::path m_PlaySelectedContentEntry;
+        EntityID m_PlayGameCameraEntity = entt::null;
+        LuaScriptRuntime m_LuaScriptRuntime;
         void* m_SkyboxPreviewTexture = nullptr;
         int m_SkyboxPreviewWidth = 0;
         int m_SkyboxPreviewHeight = 0;

@@ -24,6 +24,7 @@ namespace Luma::Editor
     class InspectorAddComponentPanel;
     class InspectorAdvancedPhysicsPanel;
     class InspectorCameraLightingPanel;
+    class InspectorDestructionPanel;
     class InspectorEntityPanel;
     class InspectorEnvironmentEffectsPanel;
     class InspectorFieldBuoyancyPanel;
@@ -32,6 +33,7 @@ namespace Luma::Editor
     class InspectorMeshRendererPanel;
     class InspectorPhysicsEventsPanel;
     class InspectorPhysicsPanel;
+    class InspectorScriptPanel;
     class InspectorVehiclePhysicsPanel;
     class MaterialTextureAssetPickerPanel;
     class MaterialTextureAssetPickerService;
@@ -46,13 +48,16 @@ namespace Luma::Editor
         bool* physicsSimulationEnabled = nullptr;
         const std::vector<ContentBrowserRootState>* contentRoots = nullptr;
         const std::unordered_map<std::string, MeshStreamingImportedScenePartsState>* importedSceneParts = nullptr;
+        const std::vector<std::string>* availableTags = nullptr;
         MaterialTextureAssetPickerService* materialTextureAssetPickerService = nullptr;
         MaterialTextureAssetPickerPanel* materialTextureAssetPickerPanel = nullptr;
         InspectorPanel* panel = nullptr;
         InspectorEntityPanel* entityPanel = nullptr;
         InspectorMeshRendererPanel* meshRendererPanel = nullptr;
         InspectorCameraLightingPanel* cameraLightingPanel = nullptr;
+        InspectorScriptPanel* scriptPanel = nullptr;
         InspectorPhysicsPanel* physicsPanel = nullptr;
+        InspectorDestructionPanel* destructionPanel = nullptr;
         InspectorJointPanel* jointPanel = nullptr;
         InspectorAdvancedPhysicsPanel* advancedPhysicsPanel = nullptr;
         InspectorVehiclePhysicsPanel* vehiclePhysicsPanel = nullptr;
@@ -74,6 +79,7 @@ namespace Luma::Editor
         std::function<void(SkyLightComponent&)> initializeSkyLightDefaults;
         std::function<void(PostProcessComponent&)> initializePostProcessDefaults;
         std::function<bool()> isSelectionValid;
+        std::function<void(std::string)> setContentStatus;
     };
 
     class InspectorHostService

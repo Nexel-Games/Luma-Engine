@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <string_view>
 
 namespace Luma
 {
@@ -33,6 +34,9 @@ namespace Luma
                 const SceneDocumentHostContext& context,
                 std::string& outSnapshot,
                 std::string& outError) const;
+            bool RestoreSceneSnapshot(
+                SceneDocumentHostContext& context,
+                std::string_view snapshot) const;
             bool IsSceneDirty(SceneDocumentHostContext& context) const;
             void UpdateSceneDirtyState(SceneDocumentHostContext& context) const;
             void CreateNewScene(SceneDocumentHostContext& context) const;

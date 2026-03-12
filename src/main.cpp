@@ -17,6 +17,7 @@
 #include "Luma/Core/App/RenderSelection.h"
 #include "Luma/RHI/RendererAPI.h"
 #include "Luma/Layers/EditorLayer.h"
+#include "Luma/Scripting/ScriptEngine.h"
 
 namespace
 {
@@ -27,6 +28,7 @@ namespace
         std::optional<Luma::BackendPreference> backendOverride;
         std::optional<Luma::RendererAPI> apiOverride;
         std::optional<std::uint32_t> smokeTestFrames;
+        std::optional<std::filesystem::path> luaSmokeTestScript;
     };
 
     std::optional<std::uint32_t> ParseUnsignedInteger(const std::string_view value)
@@ -165,6 +167,19 @@ namespace
                 }
                 continue;
             }
+
+            if (loweredArg.rfind("--lua-smoke-test-script=", 0) == 0)
+            {
+                const std::string value = arg.substr(24);
+                args.luaSmokeTestScript = std::filesystem::path(value);
+                continue;
+            }
+
+            if (loweredArg == "--lua-smoke-test-script" && (i + 1) < argc)
+            {
+                args.luaSmokeTestScript = std::filesystem::path(argv[++i]);
+                continue;
+            }
         }
 
         return args;
@@ -259,6 +274,21 @@ int main(int argc, char** argv)
             }
         }
 
+        if (launchArgs.luaSmokeTestScript.has_value())
+        {
+            if (!Luma::ScriptEngine::Initialize())
+            {
+                Luma::Logger::Shutdown();
+                return 1;
+            }
+
+            std::string error;
+            const bool success = Luma::ScriptEngine::ExecuteFile(*launchArgs.luaSmokeTestScript, &error);
+            Luma::ScriptEngine::Shutdown();
+            Luma::Logger::Shutdown();
+            return success ? 0 : 1;
+        }
+
         Luma::ApplicationConfig config;
         config.title = hasProject
                            ? ("Luma - " + Luma::Project::GetConfig().name)
@@ -266,6 +296,7 @@ int main(int argc, char** argv)
         config.width = 1000;
         config.height = 650;
         config.rendererAPI = selection.rendererAPI;
+        config.vsyncEnabled = hasProject ? Luma::Project::GetConfig().vsync : true;
         config.startMaximized = hasProject;
         config.maxFrames = launchArgs.smokeTestFrames.value_or(0);
 

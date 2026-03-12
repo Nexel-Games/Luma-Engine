@@ -730,7 +730,7 @@ namespace Luma
             {
                 return ContentItemType::Scene;
             }
-            if (extension == ".lua" || extension == ".cs" || extension == ".cpp" || extension == ".h" ||
+            if (extension == ".lua" || extension == ".lumascript" || extension == ".cs" || extension == ".cpp" || extension == ".h" ||
                 extension == ".hpp" || extension == ".py")
             {
                 return ContentItemType::Script;
@@ -1586,6 +1586,100 @@ namespace Luma
             return seed;
         }
 
+        std::filesystem::path ResolveEngineAssetPath(const std::filesystem::path& relativePath)
+        {
+            if (relativePath.empty())
+            {
+                return {};
+            }
+
+            std::error_code ec;
+            std::filesystem::path current = std::filesystem::current_path(ec);
+            if (ec)
+            {
+                current.clear();
+            }
+
+            for (std::filesystem::path probe = current; !probe.empty(); probe = probe.parent_path())
+            {
+                const std::filesystem::path candidate = probe / relativePath;
+                if (std::filesystem::exists(candidate, ec) && !ec)
+                {
+                    const std::filesystem::path resolved = std::filesystem::weakly_canonical(candidate, ec);
+                    return ec ? candidate.lexically_normal() : resolved;
+                }
+
+                const std::filesystem::path parent = probe.parent_path();
+                if (parent == probe)
+                {
+                    break;
+                }
+            }
+
+            return {};
+        }
+
+        bool EnsureCameraActorMeshLoaded(
+            CameraActorMeshState& state,
+            std::string& outError)
+        {
+            outError.clear();
+            const std::filesystem::path cameraMeshPath = ResolveEngineAssetPath("assets/Actors/Camera.obj");
+            if (cameraMeshPath.empty())
+            {
+                outError = "Camera actor mesh not found.";
+                state.loadAttempted = true;
+                state.loadFailed = true;
+                return false;
+            }
+
+            if (state.loadAttempted && state.resolvedPath == cameraMeshPath)
+            {
+                if (state.loadFailed)
+                {
+                    outError = "Camera actor mesh failed to load.";
+                    return false;
+                }
+                return !state.meshes.empty();
+            }
+
+            state = {};
+            state.loadAttempted = true;
+            state.resolvedPath = cameraMeshPath;
+
+            if (!Assets::LoadMeshSceneParts(cameraMeshPath, state.parts, outError) || state.parts.empty())
+            {
+                state.loadFailed = true;
+                if (outError.empty())
+                {
+                    outError = "Camera actor mesh contained no geometry.";
+                }
+                return false;
+            }
+
+            state.meshes.reserve(state.parts.size());
+            for (const Assets::MeshScenePart& part : state.parts)
+            {
+                state.meshes.push_back(PrimitiveMeshFactory::BuildMeshDesc(part.mesh));
+            }
+
+            return !state.meshes.empty();
+        }
+
+        MaterialRenderProxy BuildCameraActorMaterial()
+        {
+            MaterialRenderProxy material;
+            material.name = "Editor.CameraActor";
+            material.baseColor = { 0.80f, 0.90f, 1.0f, 1.0f };
+            material.emissiveColor = { 0.12f, 0.18f, 0.24f, 1.0f };
+            material.emissiveIntensity = 1.0f;
+            material.metallic = 0.0f;
+            material.roughness = 0.55f;
+            material.specular = 0.35f;
+            material.featureFlags = MaterialFeature_TwoSided;
+            return material;
+        }
+
     }
 
     TriangleLayer::TriangleLayer()
@@ -1630,11 +1724,17 @@ namespace Luma
         m_PhysicsSettings.fixedTimeStep = 1.0f / 60.0f;
         m_PhysicsSettings.maxSubSteps = 4;
         m_PhysicsSimulationEnabled = true;
+        m_PlayState = EditorPlayState::Stopped;
+        m_PlaySceneSnapshot.clear();
+        m_PlaySelectedEntityUuids.clear();
+        m_PlayPrimarySelectedEntityUuid = 0;
+        m_PlaySelectedContentEntry.clear();
+        m_PlayGameCameraEntity = entt::null;
         if (!m_PhysicsSystem.Initialize(m_PhysicsSettings))
         {
             LUMA_LOG_WARN("Physics", "Physics API initialized without an active backend.");
         }
-        m_PhysicsSystem.SetEnabled(m_PhysicsSimulationEnabled);
+        m_PhysicsSystem.SetEnabled(IsSceneSimulationEnabled());
         InitializeConsoleCommands();
         m_ConsoleEntries.clear();
         m_ConsoleLogSinkHandle = Logger::RegisterSink(
@@ -1711,6 +1811,7 @@ namespace Luma
 
     void TriangleLayer::OnDetach()
     {
+        m_LuaScriptRuntime.Stop();
         m_ResourceStreamingService.SetEventCallback({});
         m_ResourceStreamingService.Shutdown();
 
@@ -1757,10 +1858,21 @@ namespace Luma
         m_DockLayoutInitialized = false;
         m_EditorStatus.Reset();
         m_ProjectSettingsPanel.Reset();
+        m_PlayState = EditorPlayState::Stopped;
+        m_PlaySceneSnapshot.clear();
+        m_PlaySelectedEntityUuids.clear();
+        m_PlayPrimarySelectedEntityUuid = 0;
+        m_PlaySelectedContentEntry.clear();
+        m_PlayGameCameraEntity = entt::null;
     }
 
     void TriangleLayer::OnUpdate(const float deltaTimeSeconds)
     {
+        if (IsPlayModeActive() && !IsPlayModePaused())
+        {
+            m_LuaScriptRuntime.Update(m_Scene, deltaTimeSeconds);
+        }
+
         Editor::EditorTickCoordinatorContext tickContext {};
         tickContext.deltaTimeSeconds = deltaTimeSeconds;
         tickContext.timeSeconds = &m_Time;
@@ -1772,7 +1884,7 @@ namespace Luma
         tickContext.resourceStreamingService = &m_ResourceStreamingService;
         tickContext.lastStreamingTickMs = &m_LastStreamingTickMs;
         tickContext.physicsSystem = &m_PhysicsSystem;
-        tickContext.physicsSimulationEnabled = m_PhysicsSimulationEnabled;
+        tickContext.physicsSimulationEnabled = IsSceneSimulationEnabled();
         tickContext.scene = &m_Scene;
         tickContext.sceneDocument = &m_SceneDocument;
         tickContext.pruneEntitySelection = [this]()
@@ -1883,6 +1995,7 @@ namespace Luma
         renderContext.streamingService = &m_ResourceStreamingService;
         renderContext.scene = &m_Scene;
         renderContext.viewportController = &m_ViewportController;
+        renderContext.activeCameraEntity = IsPlayModeActive() ? EnsurePlayModeGameCameraEntity() : entt::null;
         renderContext.selectedEntity = m_SelectedEntity;
         renderContext.timeSeconds = m_Time;
         renderContext.skyMesh = &m_SkyPrimitiveMeshDesc;
@@ -2034,6 +2147,11 @@ namespace Luma
             hierarchyPanelContext.scene = &m_Scene;
             hierarchyPanelContext.panelIconTexture = icons.hierarchyPanel;
             hierarchyPanelContext.createIconTexture = icons.hierarchyCreate;
+            hierarchyPanelContext.cameraIconTexture = icons.hierarchyCamera;
+            hierarchyPanelContext.cubeIconTexture = icons.hierarchyCube;
+            hierarchyPanelContext.planeIconTexture = icons.hierarchyPlane;
+            hierarchyPanelContext.sphereIconTexture = icons.hierarchySphere;
+            hierarchyPanelContext.cylinderIconTexture = icons.hierarchyCylinder;
             hierarchyPanelContext.drawEntityCreationMenu = [this](const EntityID parentEntity)
             {
                 m_EntityCreationMenu.Draw({
@@ -2047,6 +2165,13 @@ namespace Luma
             hierarchyPanelContext.isEntitySelected = [this](const EntityID entity) -> bool
             {
                 return m_SceneEntityUtilityService.IsEntitySelected(m_SelectionState, entity);
+            };
+            hierarchyPanelContext.isEntityHidden = [this](const EntityID entity) -> bool
+            {
+                const auto& registry = m_Scene.GetRegistry();
+                return entity != entt::null &&
+                    registry.valid(entity) &&
+                    registry.all_of<EditorRuntimeOnlyComponent>(entity);
             };
             hierarchyPanelContext.selectSingleEntity = [this](const EntityID entity)
             {
@@ -2188,6 +2313,11 @@ namespace Luma
 
     bool TriangleLayer::OnCloseRequested()
     {
+        if (IsPlayModeActive() && !StopPlayMode())
+        {
+            return false;
+        }
+
         if (!IsSceneDirty())
         {
             return true;
@@ -2205,19 +2335,141 @@ namespace Luma
             icons.toolbarSelectionDetails,
             icons.toolbarPause,
             icons.toolbarStop,
+            m_PlayState == EditorPlayState::Stopped,
+            m_PlayState != EditorPlayState::Stopped,
+            m_PlayState != EditorPlayState::Stopped,
+            m_PlayState == EditorPlayState::Playing,
+            m_PlayState == EditorPlayState::Paused,
             [this]()
             {
-                m_EditorStatus.Content() = "Play requested.";
+                EnterPlayMode();
             },
             [this]()
             {
-                m_EditorStatus.Content() = "Pause requested.";
+                TogglePausePlayMode();
             },
             [this]()
             {
-                m_EditorStatus.Content() = "Stop requested.";
+                StopPlayMode();
             }
         });
+    }
+
+    void TriangleLayer::EnterPlayMode()
+    {
+        if (IsPlayModeActive())
+        {
+            return;
+        }
+
+        m_PlayGameCameraEntity = EnsurePlayModeGameCameraEntity();
+        if (m_PlayGameCameraEntity == entt::null)
+        {
+            bool hasAnySceneCamera = false;
+            const auto cameraView = m_Scene.GetRegistry().view<CameraComponent>();
+            for (const EntityID entity : cameraView)
+            {
+                if (m_Scene.GetRegistry().all_of<EditorRuntimeOnlyComponent>(entity))
+                {
+                    continue;
+                }
+
+                hasAnySceneCamera = true;
+                break;
+            }
+
+            m_EditorStatus.Content() =
+                hasAnySceneCamera
+                    ? "No Primary Camera Is Selected."
+                    : "Play failed: add a scene Camera and mark it Primary first.";
+            return;
+        }
+
+        std::string snapshotError;
+        if (!CaptureSceneSnapshot(m_PlaySceneSnapshot, snapshotError))
+        {
+            m_EditorStatus.Content() = "Play failed: " + snapshotError;
+            m_PlayGameCameraEntity = entt::null;
+            return;
+        }
+
+        m_PlaySelectedEntityUuids = CaptureSelectedEntityUuids();
+        m_PlayPrimarySelectedEntityUuid = 0;
+        if (m_SelectedEntity != entt::null &&
+            m_Scene.GetRegistry().valid(m_SelectedEntity) &&
+            m_Scene.GetRegistry().all_of<IDComponent>(m_SelectedEntity))
+        {
+            m_PlayPrimarySelectedEntityUuid = m_Scene.GetRegistry().get<IDComponent>(m_SelectedEntity).id;
+        }
+        m_PlaySelectedContentEntry = m_SelectedContentEntry;
+        m_PlayState = EditorPlayState::Playing;
+        m_LuaScriptRuntime.Start(m_Scene);
+        m_PhysicsSystem.SetEnabled(IsSceneSimulationEnabled());
+        m_EditorStatus.Content() = "Entered Play mode using the highest-priority primary Camera.";
+    }
+
+    void TriangleLayer::TogglePausePlayMode()
+    {
+        if (!IsPlayModeActive())
+        {
+            m_EditorStatus.Content() = "Pause is only available while playing.";
+            return;
+        }
+
+        m_PlayState = IsPlayModePaused() ? EditorPlayState::Playing : EditorPlayState::Paused;
+        m_PhysicsSystem.SetEnabled(IsSceneSimulationEnabled());
+        m_EditorStatus.Content() = IsPlayModePaused() ? "Play mode paused." : "Play mode resumed.";
+    }
+
+    bool TriangleLayer::StopPlayMode()
+    {
+        if (!IsPlayModeActive())
+        {
+            return true;
+        }
+        m_LuaScriptRuntime.Stop();
+        if (m_PlaySceneSnapshot.empty())
+        {
+            m_PlayState = EditorPlayState::Stopped;
+            m_PhysicsSystem.SetEnabled(false);
+            m_EditorStatus.Content() = "Stopped Play mode.";
+            return true;
+        }
+
+        Editor::SceneDocumentHostContext context {};
+        context.scene = &m_Scene;
+        context.sceneDocument = &m_SceneDocument;
+        context.contentStatus = &m_EditorStatus.Content();
+        context.selectedContentEntry = &m_SelectedContentEntry;
+        context.afterLoad = [this]()
+        {
+            RestoreSelectedEntityUuids(m_PlaySelectedEntityUuids, m_PlayPrimarySelectedEntityUuid);
+            m_SelectedContentEntry = m_PlaySelectedContentEntry;
+            m_ViewportController.ClearViewportInteraction();
+        };
+
+        if (!m_SceneDocumentHostService.RestoreSceneSnapshot(context, m_PlaySceneSnapshot))
+        {
+            return false;
+        }
+
+        m_PlayState = EditorPlayState::Stopped;
+        m_PlaySceneSnapshot.clear();
+        m_PlaySelectedEntityUuids.clear();
+        m_PlayPrimarySelectedEntityUuid = 0;
+        m_PlaySelectedContentEntry.clear();
+        m_PlayGameCameraEntity = entt::null;
+        m_PhysicsSystem.SetEnabled(false);
+        MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::All);
+        UpdateSceneDirtyState();
+        m_EditorStatus.Content() = "Stopped Play mode and restored the editor scene.";
+        return true;
+    }
+
+    EntityID TriangleLayer::EnsurePlayModeGameCameraEntity()
+    {
+        m_PlayGameCameraEntity = Editor::FindHighestPriorityPrimaryCameraEntity(m_Scene);
+        return m_PlayGameCameraEntity;
     }
 
     void TriangleLayer::DrawDockspace()
@@ -2565,13 +2817,16 @@ namespace Luma
             &m_PhysicsSimulationEnabled,
             &m_ContentRoots,
             &m_ImportedSceneParts,
+            Project::IsLoaded() ? &Project::GetConfig().tags : nullptr,
             &m_MaterialTextureAssetPickerService,
             &m_MaterialTextureAssetPickerPanel,
             &m_InspectorPanel,
             &m_InspectorEntityPanel,
             &m_InspectorMeshRendererPanel,
             &m_InspectorCameraLightingPanel,
+            &m_InspectorScriptPanel,
             &m_InspectorPhysicsPanel,
+            &m_InspectorDestructionPanel,
             &m_InspectorJointPanel,
             &m_InspectorAdvancedPhysicsPanel,
             &m_InspectorVehiclePhysicsPanel,
@@ -2635,6 +2890,10 @@ namespace Luma
             [this]()
             {
                 return IsSelectionValid();
+            },
+            [this](std::string status)
+            {
+                m_EditorStatus.Content() = std::move(status);
             }
         });
     }
@@ -2731,15 +2990,24 @@ namespace Luma
 
     void TriangleLayer::DrawViewportPanel()
     {
+        EnsureGizmoToolbarIconsLoaded();
+        const auto& icons = m_EditorIconService.Icons();
         m_ViewportPanel.Draw({
             &m_ShowViewportPanel,
+            icons.viewportPanel,
             &m_ViewportController,
             m_LastRenderer,
             m_SkyboxPreviewTexture,
             m_ShowColliderDebug,
+            IsPlayModeActive(),
             m_LastDeltaTimeSeconds,
             [this]()
             {
+                if (!IsPlayModeActive())
+                {
+                    return 60.0f;
+                }
+
                 float fovDegrees = 60.0f;
                 const auto& registry = m_Scene.GetRegistry();
                 if (registry.valid(m_ViewportController.LensSourceEntity()) &&
@@ -2828,10 +3096,6 @@ namespace Luma
                         m_SelectedContentEntry.clear();
                     }
                 });
-            },
-            [this]()
-            {
-                return FindEditorCameraEntity();
             }
         });
     }
@@ -2973,7 +3237,34 @@ namespace Luma
         auto& indexOverflow = buildResult.indexOverflow;
         auto& skyIndexOverflow = buildResult.skyIndexOverflow;
         auto& renderItemsStateHash = buildResult.renderItemsStateHash;
+        std::size_t cameraRenderItemCount = 0;
+        bool hasCameraActorMeshes = false;
+        if (!IsPlayModeActive())
+        {
+            std::string cameraActorMeshError;
+            hasCameraActorMeshes = EnsureCameraActorMeshLoaded(m_CameraActorMeshState, cameraActorMeshError);
+            if (hasCameraActorMeshes)
+            {
+                const auto cameraView = registry.view<TransformComponent, CameraComponent>();
+                for (const EntityID entity : cameraView)
+                {
+                    if (registry.all_of<EditorRuntimeOnlyComponent>(entity))
+                    {
+                        continue;
+                    }
 
+                    const auto& transform = cameraView.get<TransformComponent>(entity);
+                    renderItemsStateHash = HashBytes(&entity, sizeof(entity), renderItemsStateHash);
+                    renderItemsStateHash =
+                        HashBytes(transform.worldPosition.data(), sizeof(transform.worldPosition), renderItemsStateHash);
+                    renderItemsStateHash =
+                        HashBytes(transform.worldRotation.data(), sizeof(transform.worldRotation), renderItemsStateHash);
+                    renderItemsStateHash =
+                        HashBytes(transform.worldScale.data(), sizeof(transform.worldScale), renderItemsStateHash);
+                    cameraRenderItemCount += m_CameraActorMeshState.meshes.size();
+                }
+            }
+        }
         if (buildSkyPrimitiveMesh && (skyIndexOverflow || skyVertices.empty() || skyIndices.empty()))
         {
             if (m_HasSkyPrimitiveMesh || m_SkyPrimitiveMeshHash != 0 || !m_SkyPrimitiveMeshDesc.vertexData.empty())
@@ -3038,12 +3329,13 @@ namespace Luma
             return;
         }
 
+        const std::size_t expectedRenderItemCount = pendingRenderSources.size() + cameraRenderItemCount;
         const bool rebuildRenderItems =
             materialsDirty ||
-            pendingRenderSources.size() != m_SceneRenderItems.size() ||
+            expectedRenderItemCount != m_SceneRenderItems.size() ||
             renderItemsStateHash != m_SceneRenderItemsHash;
 
-        if (pendingRenderSources.empty())
+        if (expectedRenderItemCount == 0)
         {
             if (!m_SceneRenderItems.empty() || m_SceneRenderItemsHash != 0)
             {
@@ -3129,6 +3421,53 @@ namespace Luma
             assemblyContext,
             m_SceneRenderItemAssemblyScratch,
             m_SceneRenderItems);
+
+        if (hasCameraActorMeshes)
+        {
+            const auto cameraView = registry.view<TransformComponent, CameraComponent>();
+            MaterialRenderProxy cameraActorMaterial = BuildCameraActorMaterial();
+            cameraActorMaterial.sourcePath = m_CameraActorMeshState.resolvedPath;
+            for (const EntityID entity : cameraView)
+            {
+                if (registry.all_of<EditorRuntimeOnlyComponent>(entity))
+                {
+                    continue;
+                }
+
+                const auto& transform = cameraView.get<TransformComponent>(entity);
+                std::array<float, 3> markerRotation = transform.worldRotation;
+                markerRotation[1] -= 90.0f;
+                std::array<float, 3> markerScale = transform.worldScale;
+                markerScale[0] *= 0.18f;
+                markerScale[1] *= 0.18f;
+                markerScale[2] *= 0.18f;
+                const auto worldTransform =
+                    BuildTransformMatrix(transform.worldPosition, markerRotation, markerScale).elements;
+
+                for (std::size_t partIndex = 0; partIndex < m_CameraActorMeshState.meshes.size(); ++partIndex)
+                {
+                    SceneRenderItem renderItem;
+                    renderItem.key = "editor.camera:" + std::to_string(static_cast<std::uint32_t>(entity)) + ":" +
+                        std::to_string(partIndex);
+                    renderItem.meshKey = m_CameraActorMeshState.resolvedPath.generic_string() + "#part:" +
+                        std::to_string(partIndex);
+                    renderItem.mesh = m_CameraActorMeshState.meshes[partIndex];
+                    renderItem.revision = renderItemsStateHash == 0 ? 1 : renderItemsStateHash;
+                    renderItem.meshRevision = 1;
+                    renderItem.worldPosition = transform.worldPosition;
+                    renderItem.worldTransform = worldTransform;
+                    renderItem.material = BuildImportedMaterialRenderProxy(
+                        m_CameraActorMeshState.parts[partIndex].material,
+                        m_CameraActorMeshState.resolvedPath);
+                    if (renderItem.material.name.empty())
+                    {
+                        renderItem.material = cameraActorMaterial;
+                    }
+                    m_SceneRenderItems.push_back(std::move(renderItem));
+                }
+            }
+        }
+
         m_SceneRenderItemsHash = renderItemsStateHash;
         ++m_SceneRenderItemsRevision;
 
@@ -3274,6 +3613,34 @@ namespace Luma
 
     std::filesystem::path TriangleLayer::ResolveSkyAssetPath(const std::string& path) const
     {
+        if (path.empty())
+        {
+            return {};
+        }
+
+        std::filesystem::path inputPath(path);
+        std::error_code ec;
+        if (inputPath.is_absolute())
+        {
+            const std::filesystem::path absolute = std::filesystem::weakly_canonical(inputPath, ec);
+            return ec ? inputPath.lexically_normal() : absolute;
+        }
+
+        for (const Editor::ContentBrowserRootState& root : m_ContentRoots)
+        {
+            if (root.path.empty())
+            {
+                continue;
+            }
+
+            const std::filesystem::path candidate = root.path / inputPath;
+            if (std::filesystem::exists(candidate, ec) && !ec)
+            {
+                const std::filesystem::path resolved = std::filesystem::weakly_canonical(candidate, ec);
+                return ec ? candidate.lexically_normal() : resolved;
+            }
+        }
+
         return m_SkyEnvironmentService.ResolveAssetPath(
             path,
             Project::IsLoaded(),
@@ -3321,6 +3688,10 @@ namespace Luma
         context.findPrimarySkyEntity = [this]()
         {
             return FindPrimarySkyEntity();
+        };
+        context.resolveAssetPath = [this](const std::string& assetPath)
+        {
+            return ResolveSkyAssetPath(assetPath);
         };
         context.evaluateSkyColor = [this](const Editor::SkyColorEvalContext& evalContext)
         {
@@ -3448,6 +3819,11 @@ namespace Luma
 
     void TriangleLayer::RequestNewScene()
     {
+        if (IsPlayModeActive() && !StopPlayMode())
+        {
+            return;
+        }
+
         Editor::SceneActionHostContext context {};
         context.actionService = &m_SceneActionService;
         context.isSceneDirty = [this]() -> bool
@@ -3463,6 +3839,11 @@ namespace Luma
 
     void TriangleLayer::RequestLoadScene(const std::filesystem::path& scenePath)
     {
+        if (IsPlayModeActive() && !StopPlayMode())
+        {
+            return;
+        }
+
         Editor::SceneActionHostContext context {};
         context.actionService = &m_SceneActionService;
         context.isSceneDirty = [this]() -> bool
@@ -3478,6 +3859,11 @@ namespace Luma
 
     void TriangleLayer::RequestReloadScene()
     {
+        if (IsPlayModeActive() && !StopPlayMode())
+        {
+            return;
+        }
+
         Editor::SceneActionHostContext context {};
         context.actionService = &m_SceneActionService;
         context.sceneDocument = &m_SceneDocument;
@@ -3494,6 +3880,11 @@ namespace Luma
 
     bool TriangleLayer::SaveActiveScene()
     {
+        if (IsPlayModeActive() && !StopPlayMode())
+        {
+            return false;
+        }
+
         Editor::SceneActionHostContext context {};
         context.sceneFileService = &m_SceneFileService;
         context.sceneDocument = &m_SceneDocument;
@@ -3507,6 +3898,11 @@ namespace Luma
 
     bool TriangleLayer::OpenSaveSceneAsPrompt(std::string_view suggestedName)
     {
+        if (IsPlayModeActive() && !StopPlayMode())
+        {
+            return false;
+        }
+
         Editor::SceneActionHostContext context {};
         context.sceneFileService = &m_SceneFileService;
         context.sceneDocument = &m_SceneDocument;
@@ -3607,6 +4003,75 @@ namespace Luma
             return m_SceneEntityUtilityService.IsEntitySelected(m_SelectionState, entity);
         };
         return m_SceneBootstrapService.IsSelectionValid(context);
+    }
+
+    bool TriangleLayer::IsPlayModeActive() const
+    {
+        return m_PlayState != EditorPlayState::Stopped;
+    }
+
+    bool TriangleLayer::IsPlayModePaused() const
+    {
+        return m_PlayState == EditorPlayState::Paused;
+    }
+
+    bool TriangleLayer::IsSceneSimulationEnabled() const
+    {
+        return m_PlayState == EditorPlayState::Playing && m_PhysicsSimulationEnabled;
+    }
+
+    std::vector<UUID> TriangleLayer::CaptureSelectedEntityUuids() const
+    {
+        std::vector<UUID> selectionUuids;
+        selectionUuids.reserve(m_SelectedEntities.size());
+
+        const auto& registry = m_Scene.GetRegistry();
+        for (const EntityID entity : m_SelectedEntities)
+        {
+            if (entity == entt::null || !registry.valid(entity) || !registry.all_of<IDComponent>(entity))
+            {
+                continue;
+            }
+
+            selectionUuids.push_back(registry.get<IDComponent>(entity).id);
+        }
+
+        return selectionUuids;
+    }
+
+    void TriangleLayer::RestoreSelectedEntityUuids(
+        const std::vector<UUID>& selectionUuids,
+        const UUID primarySelectionUuid)
+    {
+        m_SceneEntityUtilityService.ClearEntitySelection(m_SelectionState);
+
+        for (const UUID selectionUuid : selectionUuids)
+        {
+            const EntityID entity = m_Scene.FindByUUID(selectionUuid);
+            if (entity != entt::null)
+            {
+                m_SelectionState.Append(entity);
+            }
+        }
+
+        if (primarySelectionUuid != 0)
+        {
+            const EntityID primaryEntity = m_Scene.FindByUUID(primarySelectionUuid);
+            if (primaryEntity != entt::null)
+            {
+                m_SelectionState.Append(primaryEntity);
+            }
+        }
+
+        if (m_SelectedEntity == entt::null)
+        {
+            const auto roots = m_Scene.GetRootEntities();
+            if (!roots.empty())
+            {
+                Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
+                m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, roots.front());
+            }
+        }
     }
 }
 

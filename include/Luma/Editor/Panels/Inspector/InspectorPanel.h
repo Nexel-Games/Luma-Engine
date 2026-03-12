@@ -23,6 +23,7 @@ namespace Luma::Editor
     class InspectorAddComponentPanel;
     class InspectorAdvancedPhysicsPanel;
     class InspectorCameraLightingPanel;
+    class InspectorDestructionPanel;
     class InspectorEntityPanel;
     class InspectorEnvironmentEffectsPanel;
     class InspectorFieldBuoyancyPanel;
@@ -31,6 +32,7 @@ namespace Luma::Editor
     class InspectorMeshRendererPanel;
     class InspectorPhysicsEventsPanel;
     class InspectorPhysicsPanel;
+    class InspectorScriptPanel;
     class InspectorVehiclePhysicsPanel;
     class MaterialTextureAssetPickerPanel;
     class MaterialTextureAssetPickerService;
@@ -49,6 +51,8 @@ namespace Luma::Editor
         InspectorEntityPanel* entityPanel = nullptr;
         InspectorMeshRendererPanel* meshRendererPanel = nullptr;
         InspectorCameraLightingPanel* cameraLightingPanel = nullptr;
+        InspectorScriptPanel* scriptPanel = nullptr;
+        InspectorDestructionPanel* destructionPanel = nullptr;
         InspectorPhysicsPanel* physicsPanel = nullptr;
         InspectorJointPanel* jointPanel = nullptr;
         InspectorAdvancedPhysicsPanel* advancedPhysicsPanel = nullptr;
@@ -58,6 +62,7 @@ namespace Luma::Editor
         InspectorEnvironmentEffectsPanel* environmentEffectsPanel = nullptr;
         InspectorMaterialPanel* materialPanel = nullptr;
         InspectorAddComponentPanel* addComponentPanel = nullptr;
+        const std::vector<std::string>* availableTags = nullptr;
         std::function<std::vector<std::filesystem::path>()> listContentRootPaths;
         std::function<void(EntityID, PrimitiveType)> ensurePrimitiveCollider;
         std::function<void()> markSceneRenderCacheDirty;
@@ -73,6 +78,7 @@ namespace Luma::Editor
         std::function<void(SkyLightComponent&)> initializeSkyLightDefaults;
         std::function<void(PostProcessComponent&)> initializePostProcessDefaults;
         std::function<bool()> isSelectionValid;
+        std::function<void(std::string)> setContentStatus;
     };
 
     class InspectorPanel

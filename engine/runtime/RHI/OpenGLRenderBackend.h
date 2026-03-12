@@ -51,6 +51,8 @@ namespace Luma
         void OnResize(std::uint32_t width, std::uint32_t height) override;
         void WaitIdle() override;
         RendererAPI GetAPI() const override;
+        void SetVSyncEnabled(bool enabled) override;
+        bool IsVSyncEnabled() const override;
         void SetSceneOutputSize(std::uint32_t width, std::uint32_t height) override;
         void* GetSceneOutputImGuiTexture() override;
         void* GetRenderTargetImGuiTexture(RenderTargetHandle renderTarget) override;
@@ -142,6 +144,7 @@ namespace Luma
         unsigned int m_VertexArray = 0;
         std::uint32_t m_ViewportWidth = 1;
         std::uint32_t m_ViewportHeight = 1;
+        bool m_VSyncEnabled = true;
         unsigned int m_SceneFramebuffer = 0;
         unsigned int m_SceneColorTexture = 0;
         unsigned int m_SceneDepthRenderbuffer = 0;

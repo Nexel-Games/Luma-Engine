@@ -70,7 +70,7 @@ namespace Luma::Editor
             {
                 return ContentItemType::Scene;
             }
-            if (extension == ".lua" || extension == ".cs" || extension == ".cpp" || extension == ".h" ||
+            if (extension == ".lua" || extension == ".lumascript" || extension == ".cs" || extension == ".cpp" || extension == ".h" ||
                 extension == ".hpp" || extension == ".py")
             {
                 return ContentItemType::Script;

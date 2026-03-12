@@ -460,6 +460,8 @@ namespace Luma::Assets
             return ".lumaanim";
         case AssetType::AudioClip:
             return ".lumaaudio";
+        case AssetType::LuaScript:
+            return ".lumascript";
         case AssetType::Procedural:
             return ".lumaproc";
         case AssetType::PackageManifest:

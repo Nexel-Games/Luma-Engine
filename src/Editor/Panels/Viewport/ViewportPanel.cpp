@@ -26,6 +26,15 @@ namespace Luma::Editor
             return;
         }
 
+        if (context.panelIconTexture != nullptr)
+        {
+            ImGui::Image(
+                reinterpret_cast<ImTextureID>(context.panelIconTexture),
+                ImVec2(16.0f, 16.0f),
+                ImVec2(0.0f, 0.0f),
+                ImVec2(1.0f, 1.0f));
+        }
+
         const bool viewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
         const bool viewportHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
 
@@ -138,17 +147,16 @@ namespace Luma::Editor
 
         if (drawSceneTexture)
         {
-            const EntityID lensSourceEntity =
-                viewportController.PreviewSceneCameraLens() && context.findEditorCameraEntity
-                    ? context.findEditorCameraEntity()
-                    : entt::null;
+            const EntityID lensSourceEntity = context.gamePreviewActive
+                ? viewportController.LensSourceEntity()
+                : entt::null;
 
-            if (context.showColliderDebug && context.drawDebugOverlay)
+            if (!context.gamePreviewActive && context.showColliderDebug && context.drawDebugOverlay)
             {
                 context.drawDebugOverlay(drawList, p0, renderAreaSize, lensSourceEntity);
             }
 
-            if (context.handleInteraction)
+            if (!context.gamePreviewActive && context.handleInteraction)
             {
                 context.handleInteraction(
                     drawList,
@@ -164,7 +172,10 @@ namespace Luma::Editor
             viewportController.MarqueeSelecting() = false;
         }
 
-        viewportController.HandleCameraInput(context.deltaTimeSeconds);
+        if (!context.gamePreviewActive)
+        {
+            viewportController.HandleCameraInput(context.deltaTimeSeconds);
+        }
         ImGui::EndChild();
         ImGui::End();
     }

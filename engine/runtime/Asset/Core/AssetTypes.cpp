@@ -44,6 +44,8 @@ namespace Luma::Assets
             return "AnimationClip";
         case AssetType::AudioClip:
             return "AudioClip";
+        case AssetType::LuaScript:
+            return "LuaScript";
         case AssetType::Prefab:
             return "Prefab";
         case AssetType::Scene:
@@ -106,6 +108,11 @@ namespace Luma::Assets
             outType = AssetType::AudioClip;
             return true;
         }
+        if (lowered == "luascript")
+        {
+            outType = AssetType::LuaScript;
+            return true;
+        }
         if (lowered == "prefab")
         {
             outType = AssetType::Prefab;
@@ -135,4 +142,3 @@ namespace Luma::Assets
         return false;
     }
 }
-

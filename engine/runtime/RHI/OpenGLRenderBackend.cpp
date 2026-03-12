@@ -31,7 +31,7 @@ namespace Luma
         }
 
         glfwMakeContextCurrent(m_Window);
-        glfwSwapInterval(1);
+        SetVSyncEnabled(m_VSyncEnabled);
 
         if (gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)) == 0)
         {
@@ -977,6 +977,21 @@ namespace Luma
     RendererAPI OpenGLRenderBackend::GetAPI() const
     {
         return RendererAPI::OpenGL;
+    }
+
+    void OpenGLRenderBackend::SetVSyncEnabled(const bool enabled)
+    {
+        m_VSyncEnabled = enabled;
+        if (m_Window != nullptr)
+        {
+            glfwMakeContextCurrent(m_Window);
+            glfwSwapInterval(enabled ? 1 : 0);
+        }
+    }
+
+    bool OpenGLRenderBackend::IsVSyncEnabled() const
+    {
+        return m_VSyncEnabled;
     }
 
     void OpenGLRenderBackend::SetSceneOutputSize(

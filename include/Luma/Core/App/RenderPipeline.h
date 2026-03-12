@@ -141,6 +141,7 @@ namespace Luma
         std::uint32_t outputWidth = 1;
         std::uint32_t outputHeight = 1;
         std::array<float, 3> cameraWorldPosition { 0.0f, 0.0f, 5.0f };
+        std::array<float, 4> clearColor { 0.05f, 0.07f, 0.12f, 1.0f };
         std::array<float, 3> ambientLightColor { 0.09f, 0.11f, 0.14f };
         float ambientLightIntensity = 1.0f;
         DirectionalLightDesc directionalLight {};

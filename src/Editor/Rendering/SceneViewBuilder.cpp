@@ -7,6 +7,7 @@
 
 #include "Luma/Scene/CameraComponent.h"
 #include "Luma/Scene/DirectionalLightComponent.h"
+#include "Luma/Scene/EditorRuntimeOnlyComponent.h"
 #include "Luma/Scene/PointLightComponent.h"
 #include "Luma/Scene/SkyLightComponent.h"
 #include "Luma/Scene/SpotLightComponent.h"
@@ -148,6 +149,26 @@ namespace Luma::Editor
             return result;
         }
 
+        Mat4 BuildOrthographic(
+            const float left,
+            const float right,
+            const float bottom,
+            const float top,
+            const float nearPlane,
+            const float farPlane)
+        {
+            Mat4 result {};
+            result.elements.fill(0.0f);
+            result.elements[0] = 2.0f / (right - left);
+            result.elements[5] = 2.0f / (top - bottom);
+            result.elements[10] = -2.0f / (farPlane - nearPlane);
+            result.elements[12] = -(right + left) / (right - left);
+            result.elements[13] = -(top + bottom) / (top - bottom);
+            result.elements[14] = -(farPlane + nearPlane) / (farPlane - nearPlane);
+            result.elements[15] = 1.0f;
+            return result;
+        }
+
         Mat4 BuildLookAt(const Vec3& eye, const Vec3& center, const Vec3& worldUp)
         {
             const Vec3 forward = Normalize(center - eye);
@@ -216,15 +237,12 @@ namespace Luma::Editor
             return selectedEntity;
         }
 
-        const auto view = registry.view<TransformComponent, CameraComponent>();
-        for (const EntityID entity : view)
+        if (const EntityID runtimeCamera = FindHighestPriorityPrimaryCameraEntity(scene); runtimeCamera != entt::null)
         {
-            const auto& camera = view.get<CameraComponent>(entity);
-            if (camera.primary)
-            {
-                return entity;
-            }
+            return runtimeCamera;
         }
+
+        const auto view = registry.view<TransformComponent, CameraComponent>();
 
         for (const EntityID entity : view)
         {
@@ -232,6 +250,36 @@ namespace Luma::Editor
         }
 
         return entt::null;
+    }
+
+    EntityID FindHighestPriorityPrimaryCameraEntity(const Scene& scene)
+    {
+        const auto& registry = scene.GetRegistry();
+        const auto view = registry.view<TransformComponent, CameraComponent>();
+
+        EntityID bestEntity = entt::null;
+        int bestPriority = std::numeric_limits<int>::min();
+        for (const EntityID entity : view)
+        {
+            if (registry.all_of<EditorRuntimeOnlyComponent>(entity))
+            {
+                continue;
+            }
+
+            const auto& camera = view.get<CameraComponent>(entity);
+            if (!camera.active || !camera.primary)
+            {
+                continue;
+            }
+
+            if (bestEntity == entt::null || camera.renderPriority > bestPriority)
+            {
+                bestEntity = entity;
+                bestPriority = camera.renderPriority;
+            }
+        }
+
+        return bestEntity;
     }
 
     EntityID FindPrimarySkyEntity(const Scene& scene)
@@ -285,33 +333,63 @@ namespace Luma::Editor
         sceneView.renderItemsRevision = input.renderItemsRevision;
 
         const auto& registry = input.scene->GetRegistry();
-        const EntityID lensSourceEntity = input.previewSceneCameraLens
-            ? FindEditorCameraEntity(*input.scene, input.selectedEntity)
-            : entt::null;
+        const bool hasActiveCameraEntity =
+            input.activeCameraEntity != entt::null &&
+            registry.valid(input.activeCameraEntity) &&
+            registry.all_of<TransformComponent, CameraComponent>(input.activeCameraEntity);
+        const EntityID lensSourceEntity = hasActiveCameraEntity ? input.activeCameraEntity : entt::null;
         result.lensSourceEntity = lensSourceEntity;
 
         float nearPlane = 0.1f;
         float farPlane = 2000.0f;
         float fovDegrees = 60.0f;
-        if (input.previewSceneCameraLens &&
+        float orthographicSize = 5.0f;
+        float projectionAspectRatio = static_cast<float>(sceneView.outputWidth) /
+            static_cast<float>(std::max(sceneView.outputHeight, 1u));
+        CameraProjectionMode projectionMode = CameraProjectionMode::Perspective;
+        std::array<float, 4> clearColor = sceneView.clearColor;
+        if (lensSourceEntity != entt::null &&
             lensSourceEntity != entt::null &&
             registry.valid(lensSourceEntity) &&
             registry.all_of<TransformComponent, CameraComponent>(lensSourceEntity))
         {
             const auto& camera = registry.get<CameraComponent>(lensSourceEntity);
+            projectionMode = camera.projection;
             fovDegrees = std::clamp(camera.fovDegrees, 10.0f, 170.0f);
+            orthographicSize = std::max(camera.orthographicSize, 0.01f);
+            nearPlane = std::max(camera.nearClip, 0.001f);
+            farPlane = std::max(camera.farClip, nearPlane + 0.1f);
+            projectionAspectRatio = camera.useViewportAspectRatio
+                ? projectionAspectRatio
+                : std::max(camera.aspectRatio, 0.001f);
+            if (camera.clearMode == CameraClearMode::SolidColor)
+            {
+                clearColor = camera.clearColor;
+            }
         }
 
         constexpr float kPi = 3.14159265359f;
-        const float aspectRatio = static_cast<float>(sceneView.outputWidth) /
-            static_cast<float>(std::max(sceneView.outputHeight, 1u));
-        const float yawRadians = input.editorCamera.yaw * (kPi / 180.0f);
-        const float pitchRadians = input.editorCamera.pitch * (kPi / 180.0f);
-        const Vec3 eye {
+        Vec3 eye {
             input.editorCamera.position[0],
             input.editorCamera.position[1],
             input.editorCamera.position[2]
         };
+        float yawDegrees = input.editorCamera.yaw;
+        float pitchDegrees = input.editorCamera.pitch;
+        if (hasActiveCameraEntity)
+        {
+            const auto& activeCameraTransform = registry.get<TransformComponent>(input.activeCameraEntity);
+            eye = {
+                activeCameraTransform.worldPosition[0],
+                activeCameraTransform.worldPosition[1],
+                activeCameraTransform.worldPosition[2]
+            };
+            pitchDegrees = activeCameraTransform.worldRotation[0];
+            yawDegrees = activeCameraTransform.worldRotation[1];
+        }
+
+        const float yawRadians = yawDegrees * (kPi / 180.0f);
+        const float pitchRadians = pitchDegrees * (kPi / 180.0f);
         const Vec3 forward = Normalize({
             std::cos(yawRadians) * std::cos(pitchRadians),
             std::sin(pitchRadians),
@@ -319,10 +397,21 @@ namespace Luma::Editor
         });
         const float fovRadians = fovDegrees * (kPi / 180.0f);
         const Mat4 view = BuildLookAt(eye, eye + forward, Vec3 { 0.0f, 1.0f, 0.0f });
-        const Mat4 projection = BuildPerspective(fovRadians, aspectRatio, nearPlane, farPlane);
+        Mat4 projection {};
+        if (projectionMode == CameraProjectionMode::Orthographic)
+        {
+            const float halfHeight = orthographicSize;
+            const float halfWidth = halfHeight * projectionAspectRatio;
+            projection = BuildOrthographic(-halfWidth, halfWidth, -halfHeight, halfHeight, nearPlane, farPlane);
+        }
+        else
+        {
+            projection = BuildPerspective(fovRadians, projectionAspectRatio, nearPlane, farPlane);
+        }
         const Mat4 viewProjection = Multiply(projection, view);
         sceneView.viewProjection = viewProjection.elements;
         sceneView.cameraWorldPosition = { eye.x, eye.y, eye.z };
+        sceneView.clearColor = clearColor;
         sceneView.ambientLightColor = { 0.09f, 0.11f, 0.14f };
         sceneView.ambientLightIntensity = 0.35f;
         sceneView.directionalLight.enabled = false;

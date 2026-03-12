@@ -86,11 +86,14 @@ namespace Luma::Editor
 
         if (usesHDRI)
         {
-            const std::filesystem::path imagePath = context.skyEnvironmentService->ResolveAssetPath(
-                skyLight.environmentMap,
-                context.projectLoaded,
-                context.projectRoot,
-                context.assetsPath);
+            const std::filesystem::path imagePath =
+                context.resolveAssetPath
+                    ? context.resolveAssetPath(skyLight.environmentMap)
+                    : context.skyEnvironmentService->ResolveAssetPath(
+                        skyLight.environmentMap,
+                        context.projectLoaded,
+                        context.projectRoot,
+                        context.assetsPath);
             const std::string hdriSignature = BuildSkyPreviewSignature(imagePath, skyLight);
             const bool hdriAlreadyCurrent =
                 *context.skyboxPreviewTexture != nullptr &&

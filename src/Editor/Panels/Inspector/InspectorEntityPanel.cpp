@@ -1,8 +1,11 @@
 #include "Luma/Editor/Panels/Inspector/InspectorEntityPanel.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include <imgui.h>
 
@@ -57,6 +60,14 @@ namespace Luma::Editor
             ShowItemTooltipFromLabel(label, "Adjust ");
             return changed;
         }
+
+        template <typename... Args>
+        bool ComboWithTooltip(const char* label, Args&&... args)
+        {
+            const bool changed = ImGui::Combo(label, std::forward<Args>(args)...);
+            ShowItemTooltipFromLabel(label, "Select ");
+            return changed;
+        }
     }
 
     void InspectorEntityPanel::Draw(const InspectorEntityPanelContext& context)
@@ -79,13 +90,51 @@ namespace Luma::Editor
         const auto& id = registry.get<IDComponent>(context.selectedEntity);
 
         std::array<char, 128> nameBuffer {};
-        std::snprintf(nameBuffer.data(), nameBuffer.size(), "%s", tag.tag.c_str());
+        std::snprintf(nameBuffer.data(), nameBuffer.size(), "%s", tag.name.c_str());
         if (InputTextWithTooltip("Name", nameBuffer.data(), nameBuffer.size()))
         {
-            tag.tag = nameBuffer[0] != '\0' ? nameBuffer.data() : "Entity";
+            tag.name = nameBuffer[0] != '\0' ? nameBuffer.data() : "Entity";
         }
 
         ImGui::TextDisabled("UUID: %llu", static_cast<unsigned long long>(id.id));
+
+        std::vector<const char*> tagLabels;
+        int selectedTagIndex = 0;
+        if (context.availableTags != nullptr && !context.availableTags->empty())
+        {
+            tagLabels.reserve(context.availableTags->size() + 1);
+            bool foundCurrentTag = false;
+            for (std::size_t i = 0; i < context.availableTags->size(); ++i)
+            {
+                tagLabels.push_back((*context.availableTags)[i].c_str());
+                if ((*context.availableTags)[i] == tag.tag)
+                {
+                    selectedTagIndex = static_cast<int>(i);
+                    foundCurrentTag = true;
+                }
+            }
+
+            if (!foundCurrentTag)
+            {
+                tagLabels.push_back(tag.tag.c_str());
+                selectedTagIndex = static_cast<int>(tagLabels.size() - 1);
+            }
+
+            if (ComboWithTooltip("Tag", &selectedTagIndex, tagLabels.data(), static_cast<int>(tagLabels.size())))
+            {
+                selectedTagIndex = std::clamp(selectedTagIndex, 0, static_cast<int>(tagLabels.size()) - 1);
+                tag.tag = tagLabels[static_cast<std::size_t>(selectedTagIndex)];
+            }
+        }
+        else
+        {
+            std::array<char, 128> tagBuffer {};
+            std::snprintf(tagBuffer.data(), tagBuffer.size(), "%s", tag.tag.c_str());
+            if (InputTextWithTooltip("Tag", tagBuffer.data(), tagBuffer.size()))
+            {
+                tag.tag = tagBuffer[0] != '\0' ? tagBuffer.data() : "Untagged";
+            }
+        }
 
         ImGui::Separator();
         bool transformChanged = false;
@@ -117,7 +166,7 @@ namespace Luma::Editor
             registry.all_of<TagComponent>(relationship.parent))
         {
             const auto& parentTag = registry.get<TagComponent>(relationship.parent);
-            ImGui::Text("Parent: %s", parentTag.tag.c_str());
+            ImGui::Text("Parent: %s", parentTag.name.c_str());
             ImGui::SameLine();
             if (ButtonWithTooltip("Unparent"))
             {

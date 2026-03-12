@@ -108,6 +108,12 @@ namespace Luma::Assets
 
         ImportSettingsSchema BuildModelSchema();
 
+        ImportSettingsSchema BuildLuaScriptSchema()
+        {
+            ImportSettingsSchema schema;
+            return schema;
+        }
+
         class ExtensionImporter final : public IAssetImporter
         {
         public:
@@ -383,6 +389,13 @@ namespace Luma::Assets
             100,
             std::unordered_set<std::string> { ".wav", ".mp3", ".ogg", ".flac" },
             BuildAudioSchema()));
+
+        registry.RegisterImporter(std::make_unique<ExtensionImporter>(
+            "builtin.lua",
+            AssetType::LuaScript,
+            108,
+            std::unordered_set<std::string> { ".lua" },
+            BuildLuaScriptSchema()));
 
         registry.RegisterImporter(std::make_unique<ExtensionImporter>(
             "builtin.procedural",

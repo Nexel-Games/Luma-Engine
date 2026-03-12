@@ -13,8 +13,14 @@ namespace Luma::Editor
         Scene* scene = nullptr;
         void* panelIconTexture = nullptr;
         void* createIconTexture = nullptr;
+        void* cameraIconTexture = nullptr;
+        void* cubeIconTexture = nullptr;
+        void* planeIconTexture = nullptr;
+        void* sphereIconTexture = nullptr;
+        void* cylinderIconTexture = nullptr;
         std::function<void(EntityID)> drawEntityCreationMenu;
         std::function<bool(EntityID)> isEntitySelected;
+        std::function<bool(EntityID)> isEntityHidden;
         std::function<void(EntityID)> selectSingleEntity;
         std::function<void(EntityID)> toggleEntitySelection;
         std::function<void()> pruneSelection;

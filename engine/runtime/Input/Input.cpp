@@ -33,9 +33,19 @@ namespace Luma
 
         struct ContextRuntimeState
         {
+            struct EvaluatedActionState
+            {
+                float value = 0.0f;
+                float previousValue = 0.0f;
+                bool active = false;
+                bool started = false;
+                bool completed = false;
+            };
+
             InputContextDesc desc {};
             std::size_t registrationOrder = 0;
             std::unordered_map<std::string, std::vector<InputBinding>> actionBindings {};
+            std::unordered_map<std::string, EvaluatedActionState> evaluatedActions {};
         };
 
         GLFWwindow* g_Window = nullptr;
@@ -79,6 +89,12 @@ namespace Luma
         {
             switch (key)
             {
+            case KeyCode::Space:
+                return GLFW_KEY_SPACE;
+            case KeyCode::C:
+                return GLFW_KEY_C;
+            case KeyCode::R:
+                return GLFW_KEY_R;
             case KeyCode::W:
                 return GLFW_KEY_W;
             case KeyCode::A:
@@ -130,6 +146,36 @@ namespace Luma
         {
             const auto action = g_Actions.find(std::string(actionName));
             if (action == g_Actions.end())
+            {
+                return nullptr;
+            }
+
+            return &action->second;
+        }
+
+        const ContextRuntimeState* FindContext(std::string_view contextName)
+        {
+            const auto context = g_Contexts.find(std::string(contextName));
+            if (context == g_Contexts.end())
+            {
+                return nullptr;
+            }
+
+            return &context->second;
+        }
+
+        const ContextRuntimeState::EvaluatedActionState* FindContextAction(
+            std::string_view contextName,
+            std::string_view actionName)
+        {
+            const ContextRuntimeState* context = FindContext(contextName);
+            if (context == nullptr)
+            {
+                return nullptr;
+            }
+
+            const auto action = context->evaluatedActions.find(std::string(actionName));
+            if (action == context->evaluatedActions.end())
             {
                 return nullptr;
             }
@@ -289,11 +335,25 @@ namespace Luma
                 action.completed = false;
             }
 
-            std::vector<const ContextRuntimeState*> orderedContexts;
-            orderedContexts.reserve(g_Contexts.size());
-            for (const auto& contextEntry : g_Contexts)
+            for (auto& contextEntry : g_Contexts)
             {
-                const ContextRuntimeState& context = contextEntry.second;
+                ContextRuntimeState& context = contextEntry.second;
+                for (auto& actionEntry : context.evaluatedActions)
+                {
+                    auto& action = actionEntry.second;
+                    action.previousValue = action.value;
+                    action.value = 0.0f;
+                    action.active = false;
+                    action.started = false;
+                    action.completed = false;
+                }
+            }
+
+            std::vector<ContextRuntimeState*> orderedContexts;
+            orderedContexts.reserve(g_Contexts.size());
+            for (auto& contextEntry : g_Contexts)
+            {
+                ContextRuntimeState& context = contextEntry.second;
                 if (context.desc.enabled)
                 {
                     orderedContexts.push_back(&context);
@@ -313,11 +373,20 @@ namespace Luma
                 });
 
             std::unordered_set<std::string> claimedActions;
-            for (const ContextRuntimeState* context : orderedContexts)
+            for (ContextRuntimeState* context : orderedContexts)
             {
                 for (const auto& actionBindings : context->actionBindings)
                 {
                     const std::string& actionName = actionBindings.first;
+                    float contextValue = 0.0f;
+                    for (const InputBinding& binding : actionBindings.second)
+                    {
+                        contextValue += ResolveBindingValue(binding);
+                    }
+
+                    ContextRuntimeState::EvaluatedActionState& evaluatedAction = context->evaluatedActions[actionName];
+                    evaluatedAction.value = contextValue;
+
                     if (claimedActions.contains(actionName))
                     {
                         continue;
@@ -329,13 +398,7 @@ namespace Luma
                         continue;
                     }
 
-                    float value = 0.0f;
-                    for (const InputBinding& binding : actionBindings.second)
-                    {
-                        value += ResolveBindingValue(binding);
-                    }
-
-                    action->second.value = value;
+                    action->second.value = contextValue;
                     claimedActions.insert(actionName);
                 }
             }
@@ -353,6 +416,32 @@ namespace Luma
                 if (action.desc.valueType == ActionValueType::Bool)
                 {
                     action.value = isActive ? (action.value < 0.0f ? -1.0f : 1.0f) : 0.0f;
+                }
+            }
+
+            for (auto& contextEntry : g_Contexts)
+            {
+                ContextRuntimeState& context = contextEntry.second;
+                for (auto& evaluatedEntry : context.evaluatedActions)
+                {
+                    auto action = g_Actions.find(evaluatedEntry.first);
+                    if (action == g_Actions.end())
+                    {
+                        continue;
+                    }
+
+                    auto& evaluatedAction = evaluatedEntry.second;
+                    const float threshold = std::max(action->second.desc.activationThreshold, kMinActionThreshold);
+                    const bool wasActive = std::abs(evaluatedAction.previousValue) >= threshold;
+                    const bool isActive = std::abs(evaluatedAction.value) >= threshold;
+                    evaluatedAction.active = isActive;
+                    evaluatedAction.started = !wasActive && isActive;
+                    evaluatedAction.completed = wasActive && !isActive;
+
+                    if (action->second.desc.valueType == ActionValueType::Bool)
+                    {
+                        evaluatedAction.value = isActive ? (evaluatedAction.value < 0.0f ? -1.0f : 1.0f) : 0.0f;
+                    }
                 }
             }
         }
@@ -787,9 +876,39 @@ namespace Luma
         return actionBindings->second;
     }
 
+    std::vector<InputContextDesc> Input::GetRegisteredContexts()
+    {
+        std::vector<InputContextDesc> contexts;
+        contexts.reserve(g_Contexts.size());
+        for (const auto& [_, context] : g_Contexts)
+        {
+            contexts.push_back(context.desc);
+        }
+
+        std::sort(
+            contexts.begin(),
+            contexts.end(),
+            [](const InputContextDesc& lhs, const InputContextDesc& rhs)
+            {
+                if (lhs.priority != rhs.priority)
+                {
+                    return lhs.priority > rhs.priority;
+                }
+                return lhs.name < rhs.name;
+            });
+
+        return contexts;
+    }
+
     float Input::GetActionValue(const std::string_view actionName)
     {
         const ActionRuntimeState* action = FindAction(actionName);
+        return action != nullptr ? action->value : 0.0f;
+    }
+
+    float Input::GetActionValue(const std::string_view contextName, const std::string_view actionName)
+    {
+        const ContextRuntimeState::EvaluatedActionState* action = FindContextAction(contextName, actionName);
         return action != nullptr ? action->value : 0.0f;
     }
 
@@ -799,15 +918,33 @@ namespace Luma
         return action != nullptr && action->active;
     }
 
+    bool Input::IsActionActive(const std::string_view contextName, const std::string_view actionName)
+    {
+        const ContextRuntimeState::EvaluatedActionState* action = FindContextAction(contextName, actionName);
+        return action != nullptr && action->active;
+    }
+
     bool Input::WasActionStarted(const std::string_view actionName)
     {
         const ActionRuntimeState* action = FindAction(actionName);
         return action != nullptr && action->started;
     }
 
+    bool Input::WasActionStarted(const std::string_view contextName, const std::string_view actionName)
+    {
+        const ContextRuntimeState::EvaluatedActionState* action = FindContextAction(contextName, actionName);
+        return action != nullptr && action->started;
+    }
+
     bool Input::WasActionCompleted(const std::string_view actionName)
     {
         const ActionRuntimeState* action = FindAction(actionName);
+        return action != nullptr && action->completed;
+    }
+
+    bool Input::WasActionCompleted(const std::string_view contextName, const std::string_view actionName)
+    {
+        const ContextRuntimeState::EvaluatedActionState* action = FindContextAction(contextName, actionName);
         return action != nullptr && action->completed;
     }
 

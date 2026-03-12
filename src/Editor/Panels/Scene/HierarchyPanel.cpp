@@ -13,6 +13,7 @@
 #include "Luma/Editor/UI/TooltipAPI.h"
 #include "Luma/Scene/CameraComponent.h"
 #include "Luma/Scene/DirectionalLightComponent.h"
+#include "Luma/Scene/IDComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
 #include "Luma/Scene/RelationshipComponent.h"
 #include "Luma/Scene/RigidBodyComponent.h"
@@ -94,6 +95,33 @@ namespace Luma::Editor
                 extension == ".glb";
         }
 
+        std::vector<EntityID> BuildVisibleEntities(
+            const HierarchyPanelContext& context,
+            const std::vector<EntityID>& sourceEntities)
+        {
+            std::vector<EntityID> entities;
+            entities.reserve(sourceEntities.size());
+            if (context.scene == nullptr)
+            {
+                return sourceEntities;
+            }
+
+            const auto& registry = context.scene->GetRegistry();
+            for (const EntityID entity : sourceEntities)
+            {
+                if (!registry.valid(entity) || !registry.all_of<TagComponent>(entity))
+                {
+                    continue;
+                }
+                if (context.isEntityHidden && context.isEntityHidden(entity))
+                {
+                    continue;
+                }
+                entities.push_back(entity);
+            }
+            return entities;
+        }
+
         HierarchyIconStyle ResolveHierarchyIconStyle(const entt::registry& registry, const EntityID entity)
         {
             if (registry.all_of<CameraComponent>(entity))
@@ -144,6 +172,37 @@ namespace Luma::Editor
                 }
             }
             return {};
+        }
+
+        void* ResolveHierarchyEntityIconTexture(
+            const HierarchyPanelContext& context,
+            const entt::registry& registry,
+            const EntityID entity)
+        {
+            if (registry.all_of<CameraComponent>(entity))
+            {
+                return context.cameraIconTexture;
+            }
+
+            const MeshRendererComponent* meshRenderer = registry.try_get<MeshRendererComponent>(entity);
+            if (meshRenderer == nullptr || !meshRenderer->usePrimitive)
+            {
+                return nullptr;
+            }
+
+            switch (meshRenderer->primitive)
+            {
+            case PrimitiveType::Cube:
+                return context.cubeIconTexture;
+            case PrimitiveType::Plane:
+                return context.planeIconTexture;
+            case PrimitiveType::Sphere:
+                return context.sphereIconTexture;
+            case PrimitiveType::Cylinder:
+                return context.cylinderIconTexture;
+            default:
+                return nullptr;
+            }
         }
     }
 
@@ -243,7 +302,7 @@ namespace Luma::Editor
         ImGui::Separator();
 
         std::string hierarchyFilterLower = ToLowerString(m_SearchQuery);
-        const std::vector<EntityID> rootEntities = context.scene->GetRootEntities();
+        const std::vector<EntityID> rootEntities = BuildVisibleEntities(context, context.scene->GetRootEntities());
         EntityID pendingDelete = entt::null;
         for (const EntityID rootEntity : rootEntities)
         {
@@ -328,9 +387,13 @@ namespace Luma::Editor
         {
             return false;
         }
+        if (context.isEntityHidden && context.isEntityHidden(entity))
+        {
+            return false;
+        }
 
         const auto& tag = registry.get<TagComponent>(entity);
-        std::string label = ToLowerString(tag.tag.empty() ? "Entity" : tag.tag);
+        std::string label = ToLowerString(tag.name.empty() ? "Entity" : tag.name);
         if (label.find(filterLower) != std::string::npos)
         {
             return true;
@@ -364,6 +427,10 @@ namespace Luma::Editor
         {
             return;
         }
+        if (context.isEntityHidden && context.isEntityHidden(entity))
+        {
+            return;
+        }
         if (!EntityMatchesFilter(context, entity, filterLower))
         {
             return;
@@ -371,7 +438,7 @@ namespace Luma::Editor
 
         const auto& tag = registry.get<TagComponent>(entity);
         const auto& relationship = registry.get<RelationshipComponent>(entity);
-        const std::string label = tag.tag.empty() ? "Entity" : tag.tag;
+        const std::string label = tag.name.empty() ? "Entity" : tag.name;
         const HierarchyIconStyle iconStyle = ResolveHierarchyIconStyle(registry, entity);
 
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -389,16 +456,29 @@ namespace Luma::Editor
         const bool treeItemClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
 
         ImGui::SameLine();
-        ImGui::PushStyleColor(ImGuiCol_Text, iconStyle.color);
-        ImGui::TextUnformatted(iconStyle.label);
-        ImGui::PopStyleColor();
+        bool drewIconTexture = false;
+        if (void* iconTexture = ResolveHierarchyEntityIconTexture(context, registry, entity); iconTexture != nullptr)
+        {
+            ImGui::Image(
+                reinterpret_cast<ImTextureID>(iconTexture),
+                ImVec2(16.0f, 16.0f),
+                ImVec2(0.0f, 0.0f),
+                ImVec2(1.0f, 1.0f));
+            drewIconTexture = true;
+        }
+        if (!drewIconTexture)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, iconStyle.color);
+            ImGui::TextUnformatted(iconStyle.label);
+            ImGui::PopStyleColor();
+        }
         ShowItemTooltip("Entity type tag.");
         ImGui::SameLine();
         ImGui::TextUnformatted(label.c_str());
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         {
             ImGui::SetTooltip(
-                "Entity: %s\nLeft Click: Select\nCtrl+Click: Multi-select\nDrag: Reparent",
+                "Entity: %s\nLeft Click: Select\nCtrl+Click: Multi-select",
                 label.c_str());
         }
 
@@ -446,30 +526,8 @@ namespace Luma::Editor
             ImGui::EndPopup();
         }
 
-        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
-        {
-            ImGui::SetDragDropPayload("SCENE_ENTITY", &entity, sizeof(EntityID));
-            ImGui::Text("Parent: %s", label.c_str());
-            ImGui::EndDragDropSource();
-        }
-
         if (ImGui::BeginDragDropTarget())
         {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SCENE_ENTITY"))
-            {
-                if (payload->DataSize == sizeof(EntityID))
-                {
-                    const auto dropped = *static_cast<const EntityID*>(payload->Data);
-                    if (dropped != entity)
-                    {
-                        context.scene->SetParent(dropped, entity);
-                        if (context.markSceneRenderCacheDirty)
-                        {
-                            context.markSceneRenderCacheDirty();
-                        }
-                    }
-                }
-            }
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ASSET_PATH"))
             {
                 if (payload->Data != nullptr && payload->DataSize > 1)
@@ -489,7 +547,8 @@ namespace Luma::Editor
 
         if (!relationship.children.empty() && opened)
         {
-            for (const EntityID childEntity : relationship.children)
+            const std::vector<EntityID> visibleChildren = BuildVisibleEntities(context, relationship.children);
+            for (const EntityID childEntity : visibleChildren)
             {
                 DrawEntityNode(context, childEntity, pendingDeleteEntity, filterLower);
             }

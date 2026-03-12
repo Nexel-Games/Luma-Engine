@@ -160,6 +160,7 @@ namespace Luma
             RenderPipelineProfile pipeline = RenderPipelineProfile::CoreLite;
             BackendPreference backend = BackendPreference::OpenGL;
             bool vsync = true;
+            std::vector<std::string> tags;
             std::vector<PluginConfig> plugins;
             BuildSettings build {};
         };
