@@ -26,6 +26,7 @@ namespace Luma::Editor
         std::function<void()> pruneSelection;
         std::function<void()> markSceneRenderCacheDirty;
         std::function<EntityID(const std::filesystem::path&, EntityID)> createEntityFromMeshAsset;
+        std::function<bool(EntityID)> createPrefabFromEntity;
         std::function<bool(const std::filesystem::path&)> isMeshAssetPathCandidate;
         std::function<void(std::string)> setContentStatus;
     };

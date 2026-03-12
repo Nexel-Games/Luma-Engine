@@ -1,10 +1,34 @@
 #include "Luma/Editor/Panels/Chrome/FooterBarPanel.h"
 
+#include <algorithm>
+
 #include <imgui.h>
 #include <imgui_internal.h>
 
 namespace Luma::Editor
 {
+    namespace
+    {
+        ImVec4 FooterMessageColor(const LogLevel level)
+        {
+            switch (level)
+            {
+            case LogLevel::Trace:
+                return ImVec4(0.60f, 0.64f, 0.72f, 1.0f);
+            case LogLevel::Info:
+                return ImVec4(0.72f, 0.80f, 0.92f, 1.0f);
+            case LogLevel::Warn:
+                return ImVec4(0.95f, 0.77f, 0.35f, 1.0f);
+            case LogLevel::Error:
+                return ImVec4(0.96f, 0.43f, 0.43f, 1.0f);
+            case LogLevel::Fatal:
+                return ImVec4(1.00f, 0.22f, 0.22f, 1.0f);
+            default:
+                return ImVec4(0.72f, 0.80f, 0.92f, 1.0f);
+            }
+        }
+    }
+
     void FooterBarPanel::Draw(const FooterBarPanelContext& context)
     {
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -41,13 +65,14 @@ namespace Luma::Editor
             return;
         }
 
-        ImGui::TextDisabled("Status:");
-        ImGui::SameLine(0.0f, 6.0f);
-        ImGui::TextUnformatted(context.statusText.data());
-
         const float metricsWidth = ImGui::CalcTextSize(context.metricsText.data()).x;
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        ImGui::PushStyleColor(ImGuiCol_Text, FooterMessageColor(context.messageLevel));
+        ImGui::TextUnformatted(context.messageText.data());
+        ImGui::PopStyleColor();
+
         const float rightStart = ImGui::GetWindowContentRegionMax().x - metricsWidth;
-        if (rightStart > ImGui::GetCursorPosX())
+        if (rightStart > ImGui::GetCursorPosX() + spacing)
         {
             ImGui::SameLine(rightStart);
         }

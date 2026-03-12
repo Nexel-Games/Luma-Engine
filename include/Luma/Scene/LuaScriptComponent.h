@@ -1,6 +1,9 @@
 #pragma once
 
+#include <unordered_map>
 #include <string>
+
+#include "Luma/Scripting/ScriptProperty.h"
 
 namespace Luma
 {
@@ -8,5 +11,6 @@ namespace Luma
     {
         bool enabled = true;
         std::string scriptAsset;
+        std::unordered_map<std::string, ScriptValue> propertyOverrides;
     };
 }

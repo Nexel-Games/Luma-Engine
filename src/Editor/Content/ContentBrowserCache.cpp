@@ -123,6 +123,45 @@ namespace Luma::Editor
                 extension == ".lumatex" || extension == ".lumasky" || extension == ".obj" || extension == ".fbx" ||
                 extension == ".gltf" || extension == ".glb" || extension == ".lumamesh";
         }
+
+        bool TryLoadStaticThumbnailTexture(
+            IRenderBackend* renderer,
+            const std::filesystem::path& sourcePath,
+            void*& outTexture,
+            int& outWidth,
+            int& outHeight)
+        {
+            if (renderer == nullptr || sourcePath.empty())
+            {
+                return false;
+            }
+
+            int width = 0;
+            int height = 0;
+            int channels = 0;
+            stbi_set_flip_vertically_on_load(0);
+            unsigned char* pixels =
+                stbi_load(sourcePath.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
+            if (pixels == nullptr || width <= 0 || height <= 0)
+            {
+                return false;
+            }
+
+            void* texture = renderer->CreateImGuiTextureRGBA8(
+                static_cast<std::uint32_t>(width),
+                static_cast<std::uint32_t>(height),
+                pixels);
+            stbi_image_free(pixels);
+            if (texture == nullptr)
+            {
+                return false;
+            }
+
+            outTexture = texture;
+            outWidth = width;
+            outHeight = height;
+            return true;
+        }
     }
 
     ContentBrowserCache::~ContentBrowserCache()
@@ -143,6 +182,10 @@ namespace Luma::Editor
         }
 
         ReleaseFolderThumbnailTexture(renderer);
+        ReleaseScriptThumbnailTexture(renderer);
+        ReleaseAudioThumbnailTexture(renderer);
+        ReleaseAudioMp3ThumbnailTexture(renderer);
+        ReleaseAudioWavThumbnailTexture(renderer);
         m_ThumbnailService.Shutdown(renderer);
 
         m_ContentEntries.clear();
@@ -163,6 +206,14 @@ namespace Luma::Editor
         m_ContentFilterCacheDirty = true;
         m_ContentFolderThumbnailSourcePath.clear();
         m_ContentFolderThumbnailLookupComplete = false;
+        m_ScriptThumbnailSourcePath.clear();
+        m_ScriptThumbnailLookupComplete = false;
+        m_AudioThumbnailSourcePath.clear();
+        m_AudioThumbnailLookupComplete = false;
+        m_AudioMp3ThumbnailSourcePath.clear();
+        m_AudioMp3ThumbnailLookupComplete = false;
+        m_AudioWavThumbnailSourcePath.clear();
+        m_AudioWavThumbnailLookupComplete = false;
     }
 
     void ContentBrowserCache::Tick(IRenderBackend& renderer)
@@ -234,6 +285,24 @@ namespace Luma::Editor
         if (entry.isDirectory)
         {
             return EnsureFolderThumbnailLoaded(renderer) ? m_ContentFolderThumbnailTexture : nullptr;
+        }
+
+        if (static_cast<ContentItemType>(entry.type) == ContentItemType::Script)
+        {
+            return EnsureScriptThumbnailLoaded(renderer) ? m_ScriptThumbnailTexture : nullptr;
+        }
+        if (static_cast<ContentItemType>(entry.type) == ContentItemType::Audio)
+        {
+            const std::string extension = ToLowerString(entry.path.extension().string());
+            if (extension == ".mp3")
+            {
+                return EnsureAudioMp3ThumbnailLoaded(renderer) ? m_AudioMp3ThumbnailTexture : nullptr;
+            }
+            if (extension == ".wav" || extension == ".lumaaudio")
+            {
+                return EnsureAudioWavThumbnailLoaded(renderer) ? m_AudioWavThumbnailTexture : nullptr;
+            }
+            return EnsureAudioThumbnailLoaded(renderer) ? m_AudioThumbnailTexture : nullptr;
         }
 
         if (!entry.supportsThumbnail)
@@ -356,6 +425,272 @@ namespace Luma::Editor
         return true;
     }
 
+    bool ContentBrowserCache::EnsureScriptThumbnailLoaded(IRenderBackend* renderer)
+    {
+        if (m_ScriptThumbnailTexture != nullptr)
+        {
+            return true;
+        }
+        if (renderer == nullptr)
+        {
+            return false;
+        }
+
+        std::error_code ec;
+        if (!m_ScriptThumbnailSourcePath.empty())
+        {
+            if (!std::filesystem::exists(m_ScriptThumbnailSourcePath, ec) ||
+                !std::filesystem::is_regular_file(m_ScriptThumbnailSourcePath, ec))
+            {
+                m_ScriptThumbnailSourcePath.clear();
+                m_ScriptThumbnailLookupComplete = false;
+            }
+        }
+
+        if (!m_ScriptThumbnailLookupComplete)
+        {
+            const std::array<std::filesystem::path, 6> candidates = {
+                std::filesystem::path("C:/Luma/assets/Images/LuaLogo.png"),
+                std::filesystem::current_path() / "assets" / "Images" / "LuaLogo.png",
+                std::filesystem::current_path().parent_path() / "assets" / "Images" / "LuaLogo.png",
+                std::filesystem::current_path().parent_path().parent_path() / "assets" / "Images" / "LuaLogo.png",
+                std::filesystem::current_path() / "LumaEngine" / "assets" / "Images" / "LuaLogo.png",
+                std::filesystem::current_path().parent_path() / "LumaEngine" / "assets" / "Images" / "LuaLogo.png"
+            };
+
+            for (const std::filesystem::path& candidate : candidates)
+            {
+                if (!std::filesystem::exists(candidate, ec) || !std::filesystem::is_regular_file(candidate, ec))
+                {
+                    continue;
+                }
+
+                m_ScriptThumbnailSourcePath = candidate;
+                break;
+            }
+
+            m_ScriptThumbnailLookupComplete = true;
+        }
+
+        if (m_ScriptThumbnailSourcePath.empty())
+        {
+            return false;
+        }
+
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        stbi_set_flip_vertically_on_load(0);
+        unsigned char* pixels =
+            stbi_load(m_ScriptThumbnailSourcePath.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
+        if (pixels == nullptr || width <= 0 || height <= 0)
+        {
+            return false;
+        }
+
+        void* texture = renderer->CreateImGuiTextureRGBA8(
+            static_cast<std::uint32_t>(width),
+            static_cast<std::uint32_t>(height),
+            pixels);
+        stbi_image_free(pixels);
+        if (texture == nullptr)
+        {
+            return false;
+        }
+
+        m_ScriptThumbnailTexture = texture;
+        m_ScriptThumbnailWidth = width;
+        m_ScriptThumbnailHeight = height;
+        return true;
+    }
+
+    bool ContentBrowserCache::EnsureAudioThumbnailLoaded(IRenderBackend* renderer)
+    {
+        if (m_AudioThumbnailTexture != nullptr)
+        {
+            return true;
+        }
+        if (renderer == nullptr)
+        {
+            return false;
+        }
+
+        std::error_code ec;
+        if (!m_AudioThumbnailSourcePath.empty())
+        {
+            if (!std::filesystem::exists(m_AudioThumbnailSourcePath, ec) ||
+                !std::filesystem::is_regular_file(m_AudioThumbnailSourcePath, ec))
+            {
+                m_AudioThumbnailSourcePath.clear();
+                m_AudioThumbnailLookupComplete = false;
+            }
+        }
+
+        if (!m_AudioThumbnailLookupComplete)
+        {
+            const std::array<std::filesystem::path, 7> candidates = {
+                std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Sequencer/Dropdown_Icons/Icon_Audio_Track_16x.png"),
+                std::filesystem::current_path() / "thirdparty" / "editor-icons" / "imgs" / "Sequencer" / "Dropdown_Icons" /
+                    "Icon_Audio_Track_16x.png",
+                std::filesystem::current_path().parent_path() / "thirdparty" / "editor-icons" / "imgs" / "Sequencer" / "Dropdown_Icons" /
+                    "Icon_Audio_Track_16x.png",
+                std::filesystem::current_path().parent_path().parent_path() / "thirdparty" / "editor-icons" / "imgs" / "Sequencer" /
+                    "Dropdown_Icons" / "Icon_Audio_Track_16x.png",
+                std::filesystem::current_path() / "LumaEngine" / "thirdparty" / "editor-icons" / "imgs" / "Sequencer" / "Dropdown_Icons" /
+                    "Icon_Audio_Track_16x.png",
+                std::filesystem::current_path().parent_path() / "LumaEngine" / "thirdparty" / "editor-icons" / "imgs" / "Sequencer" /
+                    "Dropdown_Icons" / "Icon_Audio_Track_16x.png",
+                std::filesystem::current_path().parent_path().parent_path() / "LumaEngine" / "thirdparty" / "editor-icons" / "imgs" /
+                    "Sequencer" / "Dropdown_Icons" / "Icon_Audio_Track_16x.png"
+            };
+
+            for (const std::filesystem::path& candidate : candidates)
+            {
+                if (!std::filesystem::exists(candidate, ec) || !std::filesystem::is_regular_file(candidate, ec))
+                {
+                    continue;
+                }
+
+                m_AudioThumbnailSourcePath = candidate;
+                break;
+            }
+
+            m_AudioThumbnailLookupComplete = true;
+        }
+
+        if (m_AudioThumbnailSourcePath.empty())
+        {
+            return false;
+        }
+
+        return TryLoadStaticThumbnailTexture(
+            renderer,
+            m_AudioThumbnailSourcePath,
+            m_AudioThumbnailTexture,
+            m_AudioThumbnailWidth,
+            m_AudioThumbnailHeight);
+    }
+
+    bool ContentBrowserCache::EnsureAudioMp3ThumbnailLoaded(IRenderBackend* renderer)
+    {
+        if (m_AudioMp3ThumbnailTexture != nullptr)
+        {
+            return true;
+        }
+        if (renderer == nullptr)
+        {
+            return false;
+        }
+
+        std::error_code ec;
+        if (!m_AudioMp3ThumbnailSourcePath.empty())
+        {
+            if (!std::filesystem::exists(m_AudioMp3ThumbnailSourcePath, ec) ||
+                !std::filesystem::is_regular_file(m_AudioMp3ThumbnailSourcePath, ec))
+            {
+                m_AudioMp3ThumbnailSourcePath.clear();
+                m_AudioMp3ThumbnailLookupComplete = false;
+            }
+        }
+
+        if (!m_AudioMp3ThumbnailLookupComplete)
+        {
+            const std::array<std::filesystem::path, 6> candidates = {
+                std::filesystem::path("C:/Luma/assets/Images/Audio_mp3.png"),
+                std::filesystem::current_path() / "assets" / "Images" / "Audio_mp3.png",
+                std::filesystem::current_path().parent_path() / "assets" / "Images" / "Audio_mp3.png",
+                std::filesystem::current_path().parent_path().parent_path() / "assets" / "Images" / "Audio_mp3.png",
+                std::filesystem::current_path() / "LumaEngine" / "assets" / "Images" / "Audio_mp3.png",
+                std::filesystem::current_path().parent_path() / "LumaEngine" / "assets" / "Images" / "Audio_mp3.png"
+            };
+
+            for (const std::filesystem::path& candidate : candidates)
+            {
+                if (!std::filesystem::exists(candidate, ec) || !std::filesystem::is_regular_file(candidate, ec))
+                {
+                    continue;
+                }
+
+                m_AudioMp3ThumbnailSourcePath = candidate;
+                break;
+            }
+
+            m_AudioMp3ThumbnailLookupComplete = true;
+        }
+
+        if (m_AudioMp3ThumbnailSourcePath.empty())
+        {
+            return false;
+        }
+
+        return TryLoadStaticThumbnailTexture(
+            renderer,
+            m_AudioMp3ThumbnailSourcePath,
+            m_AudioMp3ThumbnailTexture,
+            m_AudioMp3ThumbnailWidth,
+            m_AudioMp3ThumbnailHeight);
+    }
+
+    bool ContentBrowserCache::EnsureAudioWavThumbnailLoaded(IRenderBackend* renderer)
+    {
+        if (m_AudioWavThumbnailTexture != nullptr)
+        {
+            return true;
+        }
+        if (renderer == nullptr)
+        {
+            return false;
+        }
+
+        std::error_code ec;
+        if (!m_AudioWavThumbnailSourcePath.empty())
+        {
+            if (!std::filesystem::exists(m_AudioWavThumbnailSourcePath, ec) ||
+                !std::filesystem::is_regular_file(m_AudioWavThumbnailSourcePath, ec))
+            {
+                m_AudioWavThumbnailSourcePath.clear();
+                m_AudioWavThumbnailLookupComplete = false;
+            }
+        }
+
+        if (!m_AudioWavThumbnailLookupComplete)
+        {
+            const std::array<std::filesystem::path, 6> candidates = {
+                std::filesystem::path("C:/Luma/assets/Images/Audio_Wav.png"),
+                std::filesystem::current_path() / "assets" / "Images" / "Audio_Wav.png",
+                std::filesystem::current_path().parent_path() / "assets" / "Images" / "Audio_Wav.png",
+                std::filesystem::current_path().parent_path().parent_path() / "assets" / "Images" / "Audio_Wav.png",
+                std::filesystem::current_path() / "LumaEngine" / "assets" / "Images" / "Audio_Wav.png",
+                std::filesystem::current_path().parent_path() / "LumaEngine" / "assets" / "Images" / "Audio_Wav.png"
+            };
+
+            for (const std::filesystem::path& candidate : candidates)
+            {
+                if (!std::filesystem::exists(candidate, ec) || !std::filesystem::is_regular_file(candidate, ec))
+                {
+                    continue;
+                }
+
+                m_AudioWavThumbnailSourcePath = candidate;
+                break;
+            }
+
+            m_AudioWavThumbnailLookupComplete = true;
+        }
+
+        if (m_AudioWavThumbnailSourcePath.empty())
+        {
+            return false;
+        }
+
+        return TryLoadStaticThumbnailTexture(
+            renderer,
+            m_AudioWavThumbnailSourcePath,
+            m_AudioWavThumbnailTexture,
+            m_AudioWavThumbnailWidth,
+            m_AudioWavThumbnailHeight);
+    }
+
     void ContentBrowserCache::ReleaseFolderThumbnailTexture(IRenderBackend* renderer)
     {
         if (m_ContentFolderThumbnailTexture != nullptr && renderer != nullptr)
@@ -368,6 +703,54 @@ namespace Luma::Editor
         m_ContentFolderThumbnailHeight = 0;
     }
 
+    void ContentBrowserCache::ReleaseScriptThumbnailTexture(IRenderBackend* renderer)
+    {
+        if (m_ScriptThumbnailTexture != nullptr && renderer != nullptr)
+        {
+            renderer->DestroyImGuiTexture(m_ScriptThumbnailTexture);
+        }
+
+        m_ScriptThumbnailTexture = nullptr;
+        m_ScriptThumbnailWidth = 0;
+        m_ScriptThumbnailHeight = 0;
+    }
+
+    void ContentBrowserCache::ReleaseAudioThumbnailTexture(IRenderBackend* renderer)
+    {
+        if (m_AudioThumbnailTexture != nullptr && renderer != nullptr)
+        {
+            renderer->DestroyImGuiTexture(m_AudioThumbnailTexture);
+        }
+
+        m_AudioThumbnailTexture = nullptr;
+        m_AudioThumbnailWidth = 0;
+        m_AudioThumbnailHeight = 0;
+    }
+
+    void ContentBrowserCache::ReleaseAudioMp3ThumbnailTexture(IRenderBackend* renderer)
+    {
+        if (m_AudioMp3ThumbnailTexture != nullptr && renderer != nullptr)
+        {
+            renderer->DestroyImGuiTexture(m_AudioMp3ThumbnailTexture);
+        }
+
+        m_AudioMp3ThumbnailTexture = nullptr;
+        m_AudioMp3ThumbnailWidth = 0;
+        m_AudioMp3ThumbnailHeight = 0;
+    }
+
+    void ContentBrowserCache::ReleaseAudioWavThumbnailTexture(IRenderBackend* renderer)
+    {
+        if (m_AudioWavThumbnailTexture != nullptr && renderer != nullptr)
+        {
+            renderer->DestroyImGuiTexture(m_AudioWavThumbnailTexture);
+        }
+
+        m_AudioWavThumbnailTexture = nullptr;
+        m_AudioWavThumbnailWidth = 0;
+        m_AudioWavThumbnailHeight = 0;
+    }
+
     void* ContentBrowserCache::GetOrCreateThumbnail(
         IRenderBackend* renderer,
         const std::filesystem::path& entryPath,
@@ -376,6 +759,24 @@ namespace Luma::Editor
         if (isDirectory)
         {
             return EnsureFolderThumbnailLoaded(renderer) ? m_ContentFolderThumbnailTexture : nullptr;
+        }
+
+        if (DetectContentItemType(entryPath, false) == ContentItemType::Script)
+        {
+            return EnsureScriptThumbnailLoaded(renderer) ? m_ScriptThumbnailTexture : nullptr;
+        }
+        if (DetectContentItemType(entryPath, false) == ContentItemType::Audio)
+        {
+            const std::string extension = ToLowerString(entryPath.extension().string());
+            if (extension == ".mp3")
+            {
+                return EnsureAudioMp3ThumbnailLoaded(renderer) ? m_AudioMp3ThumbnailTexture : nullptr;
+            }
+            if (extension == ".wav" || extension == ".lumaaudio")
+            {
+                return EnsureAudioWavThumbnailLoaded(renderer) ? m_AudioWavThumbnailTexture : nullptr;
+            }
+            return EnsureAudioThumbnailLoaded(renderer) ? m_AudioThumbnailTexture : nullptr;
         }
 
         ThumbnailRequestOptions requestOptions {};

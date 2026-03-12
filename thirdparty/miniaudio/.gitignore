@@ -1,0 +1,6 @@
+*
+!.gitignore
+!LICENSE
+!README.md
+!miniaudio.c
+!miniaudio.h

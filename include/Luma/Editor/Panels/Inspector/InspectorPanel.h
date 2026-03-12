@@ -16,12 +16,14 @@ namespace Luma
     struct MeshRendererComponent;
     struct PostProcessComponent;
     struct SkyLightComponent;
+    class LuaScriptRuntime;
 }
 
 namespace Luma::Editor
 {
     class InspectorAddComponentPanel;
     class InspectorAdvancedPhysicsPanel;
+    class InspectorAudioPanel;
     class InspectorCameraLightingPanel;
     class InspectorDestructionPanel;
     class InspectorEntityPanel;
@@ -43,6 +45,8 @@ namespace Luma::Editor
         Scene* scene = nullptr;
         const std::filesystem::path* selectedContentEntry = nullptr;
         EntityID selectedEntity = entt::null;
+        ::Luma::LuaScriptRuntime* luaScriptRuntime = nullptr;
+        bool playModeActive = false;
         std::string_view physicsBackendName;
         bool* physicsSimulationEnabled = nullptr;
         const std::vector<ContentBrowserRootState>* contentRoots = nullptr;
@@ -50,6 +54,7 @@ namespace Luma::Editor
         MaterialTextureAssetPickerPanel* materialTextureAssetPickerPanel = nullptr;
         InspectorEntityPanel* entityPanel = nullptr;
         InspectorMeshRendererPanel* meshRendererPanel = nullptr;
+        InspectorAudioPanel* audioPanel = nullptr;
         InspectorCameraLightingPanel* cameraLightingPanel = nullptr;
         InspectorScriptPanel* scriptPanel = nullptr;
         InspectorDestructionPanel* destructionPanel = nullptr;
@@ -64,6 +69,14 @@ namespace Luma::Editor
         InspectorAddComponentPanel* addComponentPanel = nullptr;
         const std::vector<std::string>* availableTags = nullptr;
         std::function<std::vector<std::filesystem::path>()> listContentRootPaths;
+        std::function<bool(EntityID)> createPrefabFromEntity;
+        std::function<bool(EntityID)> applyPrefabInstance;
+        std::function<bool(EntityID)> revertPrefabInstance;
+        std::function<std::string(EntityID)> getPrefabInstanceStatus;
+        std::function<std::vector<std::string>(EntityID)> getPrefabOverridePaths;
+        std::function<bool(EntityID, std::string_view)> revertPrefabComponent;
+        std::function<bool(EntityID, std::string_view)> revertPrefabOverridePath;
+        std::function<void(EntityID)> selectPrefabAsset;
         std::function<void(EntityID, PrimitiveType)> ensurePrimitiveCollider;
         std::function<void()> markSceneRenderCacheDirty;
         std::function<void()> markSceneMaterialsDirty;

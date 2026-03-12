@@ -28,7 +28,8 @@ namespace Luma
                 LUMA_LOG_ERROR("Script", message);
                 break;
             case LogLevel::Fatal:
-                LUMA_LOG_FATAL("Script", message);
+                // Script-originated fatal logs should fault the script, not hard-abort the editor/runtime.
+                LUMA_LOG_ERROR("Script", std::string("[LuaFatal] ") + message);
                 break;
             default:
                 LUMA_LOG_INFO("Script", message);

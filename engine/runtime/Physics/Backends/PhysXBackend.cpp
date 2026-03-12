@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #if defined(LUMA_ENABLE_PHYSX) && LUMA_ENABLE_PHYSX
@@ -58,6 +59,41 @@ namespace Luma
 {
     namespace
     {
+#if defined(LUMA_ENABLE_PHYSX) && LUMA_ENABLE_PHYSX
+        std::uint32_t NativeActorKeyFromUserData(const void* userData)
+        {
+            return static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(userData));
+        }
+
+        physx::PxFilterFlags LumaFilterShader(
+            physx::PxFilterObjectAttributes attributes0,
+            physx::PxFilterData filterData0,
+            physx::PxFilterObjectAttributes attributes1,
+            physx::PxFilterData filterData1,
+            physx::PxPairFlags& pairFlags,
+            const void* constantBlock,
+            physx::PxU32 constantBlockSize)
+        {
+            PX_UNUSED(constantBlock);
+            PX_UNUSED(constantBlockSize);
+
+            if (!physx::PxFilterObjectIsTrigger(attributes0) && !physx::PxFilterObjectIsTrigger(attributes1))
+            {
+                pairFlags = physx::PxPairFlag::eCONTACT_DEFAULT |
+                    physx::PxPairFlag::eNOTIFY_TOUCH_FOUND |
+                    physx::PxPairFlag::eNOTIFY_TOUCH_PERSISTS |
+                    physx::PxPairFlag::eNOTIFY_TOUCH_LOST |
+                    physx::PxPairFlag::eDETECT_DISCRETE_CONTACT;
+                return physx::PxFilterFlags();
+            }
+
+            pairFlags = physx::PxPairFlag::eTRIGGER_DEFAULT |
+                physx::PxPairFlag::eNOTIFY_TOUCH_FOUND |
+                physx::PxPairFlag::eNOTIFY_TOUCH_LOST;
+            return physx::PxFilterFlags();
+        }
+#endif
+
         struct ColliderProxy
         {
             EntityID entity = entt::null;
@@ -825,6 +861,103 @@ namespace Luma
         return PhysicsBackendType::PhysX;
     }
 
+    void PhysXBackend::ConsumeEvents(std::vector<PhysicsEvent>& outEvents)
+    {
+        outEvents = std::move(m_PendingEvents);
+        m_PendingEvents.clear();
+    }
+
+#if defined(LUMA_ENABLE_PHYSX) && LUMA_ENABLE_PHYSX
+    void PhysXBackend::NativeSimulationEventCallback::onContact(
+        const physx::PxContactPairHeader& pairHeader,
+        const physx::PxContactPair* pairs,
+        physx::PxU32 nbPairs)
+    {
+        if (owner == nullptr)
+        {
+            return;
+        }
+
+        const auto entityA = NativeActorKeyFromUserData(pairHeader.actors[0] != nullptr ? pairHeader.actors[0]->userData : nullptr);
+        const auto entityB = NativeActorKeyFromUserData(pairHeader.actors[1] != nullptr ? pairHeader.actors[1]->userData : nullptr);
+        if (entityA == 0 || entityB == 0)
+        {
+            return;
+        }
+
+        for (physx::PxU32 pairIndex = 0; pairIndex < nbPairs; ++pairIndex)
+        {
+            const physx::PxContactPair& pair = pairs[pairIndex];
+            if (pair.events & physx::PxPairFlag::eNOTIFY_TOUCH_FOUND)
+            {
+                owner->QueuePhysicsEvent(entityA, entityB, PhysicsEventType::CollisionEnter);
+                owner->QueuePhysicsEvent(entityB, entityA, PhysicsEventType::CollisionEnter);
+            }
+            if (pair.events & physx::PxPairFlag::eNOTIFY_TOUCH_PERSISTS)
+            {
+                owner->QueuePhysicsEvent(entityA, entityB, PhysicsEventType::CollisionStay);
+                owner->QueuePhysicsEvent(entityB, entityA, PhysicsEventType::CollisionStay);
+            }
+            if (pair.events & physx::PxPairFlag::eNOTIFY_TOUCH_LOST)
+            {
+                owner->QueuePhysicsEvent(entityA, entityB, PhysicsEventType::CollisionExit);
+                owner->QueuePhysicsEvent(entityB, entityA, PhysicsEventType::CollisionExit);
+            }
+        }
+    }
+
+    void PhysXBackend::NativeSimulationEventCallback::onTrigger(physx::PxTriggerPair* pairs, physx::PxU32 count)
+    {
+        if (owner == nullptr)
+        {
+            return;
+        }
+
+        for (physx::PxU32 pairIndex = 0; pairIndex < count; ++pairIndex)
+        {
+            const physx::PxTriggerPair& pair = pairs[pairIndex];
+            if ((pair.flags & physx::PxTriggerPairFlag::eREMOVED_SHAPE_TRIGGER) ||
+                (pair.flags & physx::PxTriggerPairFlag::eREMOVED_SHAPE_OTHER))
+            {
+                continue;
+            }
+
+            const auto triggerEntity = NativeActorKeyFromUserData(
+                pair.triggerActor != nullptr ? pair.triggerActor->userData : nullptr);
+            const auto otherEntity = NativeActorKeyFromUserData(
+                pair.otherActor != nullptr ? pair.otherActor->userData : nullptr);
+            if (triggerEntity == 0 || otherEntity == 0)
+            {
+                continue;
+            }
+
+            if (pair.status & physx::PxPairFlag::eNOTIFY_TOUCH_FOUND)
+            {
+                owner->QueuePhysicsEvent(triggerEntity, otherEntity, PhysicsEventType::TriggerEnter);
+                owner->QueuePhysicsEvent(otherEntity, triggerEntity, PhysicsEventType::TriggerEnter);
+            }
+            if (pair.status & physx::PxPairFlag::eNOTIFY_TOUCH_LOST)
+            {
+                owner->QueuePhysicsEvent(triggerEntity, otherEntity, PhysicsEventType::TriggerExit);
+                owner->QueuePhysicsEvent(otherEntity, triggerEntity, PhysicsEventType::TriggerExit);
+            }
+        }
+    }
+
+    void PhysXBackend::QueuePhysicsEvent(
+        const NativeActorKey entityA,
+        const NativeActorKey entityB,
+        const PhysicsEventType type)
+    {
+        if (entityA == 0 || entityB == 0)
+        {
+            return;
+        }
+
+        m_PendingEvents.push_back({ entityA, entityB, type });
+    }
+#endif
+
     bool PhysXBackend::Initialize(const PhysicsSettings& settings)
     {
         m_Settings = settings;
@@ -863,7 +996,8 @@ namespace Luma
         physx::PxSceneDesc sceneDesc(m_PhysX->getTolerancesScale());
         sceneDesc.gravity = ToPxVec3(m_Settings.gravity);
         sceneDesc.cpuDispatcher = m_PhysXDispatcher;
-        sceneDesc.filterShader = physx::PxDefaultSimulationFilterShader;
+        sceneDesc.filterShader = LumaFilterShader;
+        sceneDesc.simulationEventCallback = &m_SimulationEventCallback;
         sceneDesc.flags |= physx::PxSceneFlag::eENABLE_CCD;
         sceneDesc.flags |= physx::PxSceneFlag::eENABLE_ACTIVE_ACTORS;
 
@@ -913,6 +1047,7 @@ namespace Luma
     {
         m_Initialized = false;
         m_UsingNativePhysX = false;
+        m_PendingEvents.clear();
         m_BlastDestructionService.Shutdown();
 
 #if defined(LUMA_ENABLE_PHYSX) && LUMA_ENABLE_PHYSX
@@ -1103,6 +1238,7 @@ namespace Luma
 #if defined(LUMA_ENABLE_PHYSX) && LUMA_ENABLE_PHYSX
     void PhysXBackend::ShutdownNativePhysX()
     {
+        m_PendingEvents.clear();
         DestroyNativeJoints();
         DestroyNativeControllers();
         m_NativeVehicles.clear();
@@ -1312,6 +1448,8 @@ namespace Luma
         {
             return false;
         }
+
+        actor->userData = reinterpret_cast<void*>(static_cast<std::uintptr_t>(entityKey));
 
         physx::PxMaterial* material = m_PhysX->createMaterial(
             std::max(0.0f, collider.material.staticFriction),
@@ -1544,6 +1682,7 @@ namespace Luma
 
         if (physx::PxRigidDynamic* actor = pxController->getActor())
         {
+            actor->userData = reinterpret_cast<void*>(static_cast<std::uintptr_t>(entityKey));
             actor->setActorFlag(physx::PxActorFlag::eDISABLE_GRAVITY, true);
             actor->setRigidBodyFlag(physx::PxRigidBodyFlag::eENABLE_CCD, m_Settings.enableCCD);
 

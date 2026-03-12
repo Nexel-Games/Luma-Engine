@@ -512,6 +512,12 @@ namespace Luma::Editor
                 ImGui::EndMenu();
             }
 
+            if (context.createPrefabFromEntity && MenuItemWithTooltip("Create Prefab"))
+            {
+                context.createPrefabFromEntity(entity);
+            }
+            ShowItemTooltip("Create a prefab asset from this entity hierarchy.");
+
             if (relationship.parent != entt::null && MenuItemWithTooltip("Unparent"))
             {
                 context.scene->Unparent(entity);

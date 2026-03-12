@@ -10,6 +10,8 @@
 #include <imgui.h>
 
 #include "Luma/Editor/UI/TooltipAPI.h"
+#include "Luma/Scene/AudioListenerComponent.h"
+#include "Luma/Scene/AudioSourceComponent.h"
 #include "Luma/Scene/BuoyancyComponent.h"
 #include "Luma/Scene/CameraComponent.h"
 #include "Luma/Scene/CharacterControllerComponent.h"
@@ -148,6 +150,8 @@ namespace Luma::Editor
         const bool canAddMesh = !registry.all_of<MeshRendererComponent>(context.selectedEntity);
         const bool canAddMaterial = !registry.all_of<MaterialComponent>(context.selectedEntity);
         const bool canAddCamera = !registry.all_of<CameraComponent>(context.selectedEntity);
+        const bool canAddAudioSource = !registry.all_of<AudioSourceComponent>(context.selectedEntity);
+        const bool canAddAudioListener = !registry.all_of<AudioListenerComponent>(context.selectedEntity);
         const bool canAddLuaScript = !registry.all_of<LuaScriptComponent>(context.selectedEntity);
         const bool canAddDirectional = !registry.all_of<DirectionalLightComponent>(context.selectedEntity);
         const bool canAddPoint = !registry.all_of<PointLightComponent>(context.selectedEntity);
@@ -171,9 +175,9 @@ namespace Luma::Editor
         const bool canAddRagdoll = !registry.all_of<RagdollComponent>(context.selectedEntity);
         const bool canAddDestructible = !registry.all_of<DestructibleComponent>(context.selectedEntity);
         const bool canAddAny =
-            canAddMesh || canAddMaterial || canAddCamera || canAddLuaScript || canAddDirectional || canAddPoint || canAddSpot || canAddSky || canAddPostProcess || canAddRigidBody || canAddCollider ||
+            canAddMesh || canAddMaterial || canAddCamera || canAddAudioSource || canAddAudioListener || canAddLuaScript || canAddDirectional || canAddPoint || canAddSpot || canAddSky || canAddPostProcess || canAddRigidBody || canAddCollider ||
             canAddJoint || canAddFixedJoint || canAddHingeJoint || canAddSliderJoint || canAddD6Joint ||
-            canAddCharacterController || canAddWheelCollider || canAddVehicle || canAddForceField || canAddBuoyancy ||
+            canAddCharacterController || canAddWheelCollider || canAddVehicle || canAddVehicleInput || canAddForceField || canAddBuoyancy ||
             canAddPhysicsEvents || canAddRagdoll || canAddDestructible;
         bool displayedAny = false;
 
@@ -181,6 +185,9 @@ namespace Luma::Editor
             (canAddMesh && matchesFilter("Mesh Renderer")) ||
             (canAddMaterial && matchesFilter("Material"));
         const bool hasCameraEntries = canAddCamera && matchesFilter("Camera");
+        const bool hasAudioEntries =
+            (canAddAudioSource && matchesFilter("Audio Source")) ||
+            (canAddAudioListener && matchesFilter("Audio Listener"));
         const bool hasScriptingEntries = canAddLuaScript && matchesFilter("Lua Script");
         const bool hasLightingEntries =
             (canAddDirectional && matchesFilter("Directional Light")) ||
@@ -268,6 +275,31 @@ namespace Luma::Editor
                 ImGui::CloseCurrentPopup();
             }
             ShowItemTooltip("Adds a scene camera component.");
+            ImGui::EndMenu();
+        }
+
+        if (hasAudioEntries && ImGui::BeginMenu("Audio"))
+        {
+            displayedAny = true;
+            ShowItemTooltip("Audio playback and listener components.");
+            if (canAddAudioSource && matchesFilter("Audio Source"))
+            {
+                if (MenuItemWithTooltip("Audio Source"))
+                {
+                    registry.emplace<AudioSourceComponent>(context.selectedEntity);
+                    ImGui::CloseCurrentPopup();
+                }
+                ShowItemTooltip("Adds an audio source for clip playback on this entity.");
+            }
+            if (canAddAudioListener && matchesFilter("Audio Listener"))
+            {
+                if (MenuItemWithTooltip("Audio Listener"))
+                {
+                    registry.emplace<AudioListenerComponent>(context.selectedEntity);
+                    ImGui::CloseCurrentPopup();
+                }
+                ShowItemTooltip("Adds an audio listener used as the active 3D listener in Play mode.");
+            }
             ImGui::EndMenu();
         }
 

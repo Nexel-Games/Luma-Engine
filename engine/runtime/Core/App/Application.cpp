@@ -19,6 +19,7 @@
 #include "Luma/Core/Foundation/Memory.h"
 #include "Luma/Core/Foundation/Platform.h"
 #include "Luma/Core/Foundation/Time.h"
+#include "Luma/Audio/Core/AudioSystem.h"
 #include "Luma/Input/Input.h"
 #include "Luma/RHI/RHIFactory.h"
 #include "Luma/Scripting/ScriptEngine.h"
@@ -152,6 +153,11 @@ namespace Luma
             throw std::runtime_error("Failed to initialize ScriptEngine.");
         }
 
+        if (!Audio::AudioSystem::Initialize())
+        {
+            LUMA_LOG_WARN("Audio", "Audio system initialization failed. Audio playback will be unavailable.");
+        }
+
         glfwSetErrorCallback(GlfwErrorCallback);
 
         if (!InitializeWindow())
@@ -210,6 +216,7 @@ namespace Luma
         }
 
         ScriptEngine::Shutdown();
+        Audio::AudioSystem::Shutdown();
         Input::Shutdown();
         JobSystem::Stop();
         ShutdownWindow();
@@ -257,6 +264,8 @@ namespace Luma
             {
                 layer->OnUpdate(deltaTime);
             }
+
+            Audio::AudioSystem::Update(deltaTime);
 
             m_RenderBackend->BeginFrame();
             for (const auto& layer : m_LayerStack)

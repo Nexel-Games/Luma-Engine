@@ -154,6 +154,10 @@ namespace Luma::Editor
             std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/icon_tab_Viewports_16x.png"),
             std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/icon_tab_Viewports_16x.png")
         }, "Icons/icon_tab_Viewports_16x.png"));
+        m_Icons.contentAudio = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Sequencer/Dropdown_Icons/Icon_Audio_Track_16x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Sequencer/Dropdown_Icons/Icon_Audio_Track_16x.png")
+        }, "Sequencer/Dropdown_Icons/Icon_Audio_Track_16x.png"));
         m_Icons.physicsKinematicBody = LoadIconFromCandidates(*renderer, BuildIconCandidates({
             std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/PhysicsAssetEditor/KinematicBody_16x.png"),
             std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/PhysicsAssetEditor/KinematicBody_16x.png")
@@ -226,6 +230,7 @@ namespace Luma::Editor
         ReleaseIcon(renderer, m_Icons.hierarchyRigidBody);
         ReleaseIcon(renderer, m_Icons.hierarchyHinge);
         ReleaseIcon(renderer, m_Icons.viewportPanel);
+        ReleaseIcon(renderer, m_Icons.contentAudio);
         ReleaseIcon(renderer, m_Icons.physicsKinematicBody);
         ReleaseIcon(renderer, m_Icons.physicsColliderBox);
         ReleaseIcon(renderer, m_Icons.physicsColliderSphere);
@@ -255,6 +260,7 @@ namespace Luma::Editor
             m_Icons.hierarchyRigidBody != nullptr ||
             m_Icons.hierarchyHinge != nullptr ||
             m_Icons.viewportPanel != nullptr ||
+            m_Icons.contentAudio != nullptr ||
             m_Icons.physicsKinematicBody != nullptr ||
             m_Icons.physicsColliderBox != nullptr ||
             m_Icons.physicsColliderSphere != nullptr ||

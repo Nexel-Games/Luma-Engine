@@ -428,15 +428,17 @@ namespace Luma::Editor
                 postProcessChanged |= DragFloatWithTooltip("Film Shoulder", &postProcess.filmCurveShoulder, 0.01f, 0.1f, 4.0f);
                 postProcessChanged |= DragFloatWithTooltip("Film Linear", &postProcess.filmCurveLinear, 0.01f, 0.1f, 4.0f);
                 postProcessChanged |= DragFloatWithTooltip("Film Toe", &postProcess.filmCurveToe, 0.01f, 0.1f, 4.0f);
-                postProcessChanged |= CheckboxWithTooltip("Bloom", &postProcess.bloomEnabled);
-                postProcessChanged |= DragFloatWithTooltip("Bloom Intensity", &postProcess.bloomIntensity, 0.01f, 0.0f, 4.0f);
-                postProcessChanged |= DragFloatWithTooltip("Bloom Threshold", &postProcess.bloomThreshold, 0.01f, 0.0f, 16.0f);
-                postProcessChanged |= DragFloatWithTooltip("Bloom Knee", &postProcess.bloomKnee, 0.01f, 0.01f, 8.0f);
-
                 ImGui::TextDisabled("Tone Mapper: %s", ToneMappingOperatorLabel(postProcess.toneMappingOperator));
                 ImGui::TextDisabled("Attach to any entity; disable Unbound to use Transform + Volume Extents + Blend Distance.");
                 ImGui::TextDisabled("CryEngine-style HDR: eye adaptation compensation, color balance, film curve.");
-                ImGui::TextDisabled("Bloom is stored now; the fullscreen bloom pass is still pending.");
+                if (postProcess.bloomEnabled || postProcess.bloomIntensity > 0.0f)
+                {
+                    ImGui::TextDisabled("Bloom settings exist on this volume but are hidden until the fullscreen bloom pass ships.");
+                }
+                else
+                {
+                    ImGui::TextDisabled("Bloom controls are hidden until the fullscreen bloom pass ships.");
+                }
 
                 if (postProcessChanged)
                 {
@@ -451,9 +453,6 @@ namespace Luma::Editor
                     postProcess.filmCurveShoulder = std::max(postProcess.filmCurveShoulder, 0.1f);
                     postProcess.filmCurveLinear = std::max(postProcess.filmCurveLinear, 0.1f);
                     postProcess.filmCurveToe = std::max(postProcess.filmCurveToe, 0.1f);
-                    postProcess.bloomIntensity = std::max(postProcess.bloomIntensity, 0.0f);
-                    postProcess.bloomThreshold = std::max(postProcess.bloomThreshold, 0.0f);
-                    postProcess.bloomKnee = std::max(postProcess.bloomKnee, 0.01f);
                     if (context.onEnvironmentChanged)
                     {
                         context.onEnvironmentChanged();

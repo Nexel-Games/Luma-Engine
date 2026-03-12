@@ -13,6 +13,7 @@ namespace Luma::Editor
         DirectionalLight,
         SkyLight,
         Player,
+        AudioSource,
         Cube,
         Plane,
         Sphere,

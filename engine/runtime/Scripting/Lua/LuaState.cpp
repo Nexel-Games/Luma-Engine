@@ -1,8 +1,11 @@
 #include "Luma/Scripting/Lua/LuaState.h"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <filesystem>
 #include <string>
+#include <system_error>
 
 #include <lua.hpp>
 
@@ -55,6 +58,102 @@ namespace Luma
             }
 
             return std::filesystem::absolute(path);
+        }
+
+        std::string NormalizeSlashes(std::string value)
+        {
+            std::replace(value.begin(), value.end(), '\\', '/');
+            return value;
+        }
+
+        std::string TrimWhitespace(std::string value)
+        {
+            auto notWhitespace = [](const unsigned char character)
+            {
+                return !std::isspace(character);
+            };
+
+            value.erase(value.begin(), std::find_if(value.begin(), value.end(), notWhitespace));
+            value.erase(std::find_if(value.rbegin(), value.rend(), notWhitespace).base(), value.end());
+            return value;
+        }
+
+        std::string MakeDisplayScriptPath(const std::filesystem::path& path)
+        {
+            if (path.empty())
+            {
+                return {};
+            }
+
+            std::error_code errorCode;
+            const std::filesystem::path normalizedPath = path.lexically_normal();
+            if (Project::IsLoaded())
+            {
+                const std::filesystem::path& projectRoot = Project::GetProjectRoot();
+                if (!projectRoot.empty())
+                {
+                    const std::filesystem::path relative = std::filesystem::relative(normalizedPath, projectRoot, errorCode);
+                    if (!errorCode)
+                    {
+                        return relative.generic_string();
+                    }
+                }
+            }
+
+            return normalizedPath.generic_string();
+        }
+
+        std::string ExtractLuaErrorHeadline(const std::string_view rawError, const std::filesystem::path& sourcePath)
+        {
+            std::string headline(rawError.substr(0, rawError.find('\n')));
+            headline = TrimWhitespace(std::move(headline));
+            if (headline.empty())
+            {
+                return "Unknown Lua error.";
+            }
+
+            headline = NormalizeSlashes(std::move(headline));
+            const std::string sourcePathText = NormalizeSlashes(sourcePath.lexically_normal().generic_string());
+            const std::string displayPath = NormalizeSlashes(MakeDisplayScriptPath(sourcePath));
+            if (!sourcePathText.empty())
+            {
+                std::size_t searchIndex = 0;
+                while ((searchIndex = headline.find(sourcePathText, searchIndex)) != std::string::npos)
+                {
+                    headline.replace(searchIndex, sourcePathText.size(), displayPath);
+                    searchIndex += displayPath.size();
+                }
+            }
+
+            return headline;
+        }
+
+        std::string FormatLuaLoadError(
+            const std::filesystem::path& sourcePath,
+            const std::string_view stage,
+            const std::string_view rawError)
+        {
+            std::string message = "Lua script ";
+            message += stage;
+            message += " failed | Script: ";
+            message += MakeDisplayScriptPath(sourcePath);
+            message += " | ";
+            message += ExtractLuaErrorHeadline(rawError, sourcePath);
+            return message;
+        }
+
+        std::string FormatLuaChunkError(
+            const std::string_view chunkName,
+            const std::string_view stage,
+            const std::string_view rawError)
+        {
+            std::string message = "Lua chunk ";
+            message += stage;
+            message += " failed | Chunk: ";
+            message += chunkName;
+            message += " | ";
+            message += TrimWhitespace(std::string(rawError.substr(0, rawError.find('\n'))));
+            return message;
         }
 
         void AppendPackagePatterns(lua_State* state, const std::filesystem::path& directory)
@@ -177,7 +276,7 @@ namespace Luma
             {
                 *outError = error;
             }
-            LUMA_LOG_ERROR("Script", "Failed to load '" + resolvedPathString + "': " + error);
+            LUMA_LOG_ERROR("Script", FormatLuaLoadError(resolvedPath, "load", error));
             return false;
         }
 
@@ -189,7 +288,7 @@ namespace Luma
             {
                 *outError = error;
             }
-            LUMA_LOG_ERROR("Script", "Runtime error in '" + resolvedPathString + "': " + error);
+            LUMA_LOG_ERROR("Script", FormatLuaLoadError(resolvedPath, "execute", error));
             return false;
         }
 
@@ -222,7 +321,7 @@ namespace Luma
             {
                 *outError = error;
             }
-            LUMA_LOG_ERROR("Script", "Failed to load chunk '" + chunkNameString + "': " + error);
+            LUMA_LOG_ERROR("Script", FormatLuaChunkError(chunkNameString, "load", error));
             return false;
         }
 
@@ -234,7 +333,7 @@ namespace Luma
             {
                 *outError = error;
             }
-            LUMA_LOG_ERROR("Script", "Runtime error in chunk '" + chunkNameString + "': " + error);
+            LUMA_LOG_ERROR("Script", FormatLuaChunkError(chunkNameString, "execute", error));
             return false;
         }
 

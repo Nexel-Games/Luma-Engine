@@ -10,6 +10,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include "Luma/Core/Foundation/Logging.h"
+#include "Luma/Scene/AudioListenerComponent.h"
+#include "Luma/Scene/AudioSourceComponent.h"
 #include "Luma/Scene/BuoyancyComponent.h"
 #include "Luma/Scene/CameraComponent.h"
 #include "Luma/Scene/CharacterControllerComponent.h"
@@ -27,6 +30,7 @@
 #include "Luma/Scene/MaterialComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
 #include "Luma/Scene/PhysicsEventsComponent.h"
+#include "Luma/Scene/PrefabInstanceComponent.h"
 #include "Luma/Scene/PostProcessComponent.h"
 #include "Luma/Scene/RagdollComponent.h"
 #include "Luma/Scene/RelationshipComponent.h"
@@ -40,6 +44,7 @@
 #include "Luma/Scene/VehicleComponent.h"
 #include "Luma/Scene/VehicleInputComponent.h"
 #include "Luma/Scene/WheelColliderComponent.h"
+#include "Luma/Scripting/ScriptEngine.h"
 
 namespace Luma
 {
@@ -129,6 +134,103 @@ namespace Luma
         {
             return static_cast<Enum>(value);
         }
+
+        json ScriptValueToJson(const ScriptValue& value)
+        {
+            json result;
+            result["type"] = EnumToInt(value.type);
+
+            switch (value.type)
+            {
+            case ScriptValueType::Bool:
+                result["value"] = value.boolValue;
+                break;
+            case ScriptValueType::Int:
+                result["value"] = value.intValue;
+                break;
+            case ScriptValueType::Float:
+                result["value"] = value.floatValue;
+                break;
+            case ScriptValueType::String:
+                result["value"] = value.stringValue;
+                break;
+            case ScriptValueType::Entity:
+                result["value"] = value.entityValue;
+                break;
+            case ScriptValueType::Vec2:
+                result["value"] = ArrayToJson(value.vec2Value);
+                break;
+            case ScriptValueType::Vec3:
+                result["value"] = ArrayToJson(value.vec3Value);
+                break;
+            case ScriptValueType::Vec4:
+                result["value"] = ArrayToJson(value.vec4Value);
+                break;
+            case ScriptValueType::None:
+            default:
+                result["value"] = nullptr;
+                break;
+            }
+
+            return result;
+        }
+
+        bool ReadScriptValueFromJson(const json& object, ScriptValue& outValue, std::string& outError)
+        {
+            if (!object.is_object())
+            {
+                outError = "Script property override must be an object.";
+                return false;
+            }
+
+            outValue = {};
+            outValue.type = IntToEnum<ScriptValueType>(object.value("type", EnumToInt(ScriptValueType::None)));
+            const auto valueIt = object.find("value");
+            if (valueIt == object.end())
+            {
+                return true;
+            }
+
+            switch (outValue.type)
+            {
+            case ScriptValueType::Bool:
+                outValue.boolValue = valueIt->get<bool>();
+                return true;
+            case ScriptValueType::Int:
+                outValue.intValue = valueIt->get<int>();
+                return true;
+            case ScriptValueType::Float:
+                outValue.floatValue = valueIt->get<float>();
+                return true;
+            case ScriptValueType::String:
+                outValue.stringValue = valueIt->get<std::string>();
+                return true;
+            case ScriptValueType::Entity:
+                outValue.entityValue = valueIt->get<UUID>();
+                return true;
+            case ScriptValueType::Vec2:
+                if (!ReadArrayField(object, "value", outValue.vec2Value, outError))
+                {
+                    return false;
+                }
+                return true;
+            case ScriptValueType::Vec3:
+                if (!ReadArrayField(object, "value", outValue.vec3Value, outError))
+                {
+                    return false;
+                }
+                return true;
+            case ScriptValueType::Vec4:
+                if (!ReadArrayField(object, "value", outValue.vec4Value, outError))
+                {
+                    return false;
+                }
+                return true;
+            case ScriptValueType::None:
+            default:
+                return true;
+            }
+        }
     }
 
     bool SceneSerializer::Serialize(const Scene& scene, const std::filesystem::path& scenePath, std::string& outError)
@@ -150,7 +252,7 @@ namespace Luma
 
             const auto& registry = scene.GetRegistry();
             json root;
-            root["schemaVersion"] = 2;
+            root["schemaVersion"] = 3;
             root["entities"] = json::array();
 
             VisitEntityHierarchyInOrder(scene, [&](const EntityID entity)
@@ -271,9 +373,71 @@ namespace Luma
 
                 if (const auto* component = registry.try_get<LuaScriptComponent>(entity))
                 {
+                    json scriptOverrides = json::object();
+                    const LuaScriptAssetMetadata* metadata = nullptr;
+                    if (!component->scriptAsset.empty())
+                    {
+                        metadata = ScriptEngine::GetScriptMetadata(component->scriptAsset);
+                    }
+
+                    std::vector<std::string> propertyNames;
+                    propertyNames.reserve(component->propertyOverrides.size());
+                    for (const auto& [propertyName, propertyValue] : component->propertyOverrides)
+                    {
+                        if (metadata != nullptr && !IsScriptPropertyOverrideValid(*metadata, propertyName, propertyValue))
+                        {
+                            continue;
+                        }
+                        propertyNames.push_back(propertyName);
+                    }
+
+                    std::sort(propertyNames.begin(), propertyNames.end());
+                    for (const std::string& propertyName : propertyNames)
+                    {
+                        const auto overrideIt = component->propertyOverrides.find(propertyName);
+                        if (overrideIt == component->propertyOverrides.end())
+                        {
+                            continue;
+                        }
+                        scriptOverrides[propertyName] = ScriptValueToJson(overrideIt->second);
+                    }
+
                     entityJson["luaScript"] = {
                         { "enabled", component->enabled },
-                        { "scriptAsset", component->scriptAsset }
+                        { "scriptAsset", component->scriptAsset },
+                        { "propertyOverrides", std::move(scriptOverrides) }
+                    };
+                }
+
+                if (const auto* component = registry.try_get<AudioSourceComponent>(entity))
+                {
+                    entityJson["audioSource"] = {
+                        { "clipAsset", component->clipAsset },
+                        { "playOnAwake", component->playOnAwake },
+                        { "looping", component->looping },
+                        { "spatialized", component->spatialized },
+                        { "mute", component->mute },
+                        { "volume", component->volume },
+                        { "pitch", component->pitch },
+                        { "minDistance", component->minDistance },
+                        { "maxDistance", component->maxDistance }
+                    };
+                }
+
+                if (const auto* component = registry.try_get<AudioListenerComponent>(entity))
+                {
+                    entityJson["audioListener"] = {
+                        { "enabled", component->enabled },
+                        { "volume", component->volume }
+                    };
+                }
+
+                if (const auto* component = registry.try_get<PrefabInstanceComponent>(entity))
+                {
+                    entityJson["prefabInstance"] = {
+                        { "prefabAsset", component->prefabAsset },
+                        { "sourceEntityId", component->sourceEntityId },
+                        { "isRoot", component->isRoot }
                     };
                 }
 
@@ -977,6 +1141,58 @@ namespace Luma
                     auto& component = entity.AddOrReplaceComponent<LuaScriptComponent>();
                     component.enabled = componentIt->value("enabled", component.enabled);
                     component.scriptAsset = componentIt->value("scriptAsset", component.scriptAsset);
+                    component.propertyOverrides.clear();
+                    if (const auto overridesIt = componentIt->find("propertyOverrides");
+                        overridesIt != componentIt->end() && overridesIt->is_object())
+                    {
+                        for (auto overrideIt = overridesIt->begin(); overrideIt != overridesIt->end(); ++overrideIt)
+                        {
+                            ScriptValue value {};
+                            if (!ReadScriptValueFromJson(overrideIt.value(), value, outError))
+                            {
+                                LUMA_LOG_WARN(
+                                    "Scene",
+                                    "Skipping invalid Lua script property override '" + overrideIt.key() + "': " + outError);
+                                outError.clear();
+                                continue;
+                            }
+
+                            component.propertyOverrides.emplace(overrideIt.key(), std::move(value));
+                        }
+                    }
+                }
+
+                if (const auto componentIt = entityJson.find("audioSource");
+                    componentIt != entityJson.end() && componentIt->is_object())
+                {
+                    auto& component = entity.AddOrReplaceComponent<AudioSourceComponent>();
+                    component.clipAsset = componentIt->value("clipAsset", component.clipAsset);
+                    component.playOnAwake = componentIt->value("playOnAwake", component.playOnAwake);
+                    component.looping = componentIt->value("looping", component.looping);
+                    component.spatialized = componentIt->value("spatialized", component.spatialized);
+                    component.mute = componentIt->value("mute", component.mute);
+                    component.volume = componentIt->value("volume", component.volume);
+                    component.pitch = componentIt->value("pitch", component.pitch);
+                    component.minDistance = componentIt->value("minDistance", component.minDistance);
+                    component.maxDistance = componentIt->value("maxDistance", component.maxDistance);
+                    component.runtimeHandle = 0;
+                }
+
+                if (const auto componentIt = entityJson.find("audioListener");
+                    componentIt != entityJson.end() && componentIt->is_object())
+                {
+                    auto& component = entity.AddOrReplaceComponent<AudioListenerComponent>();
+                    component.enabled = componentIt->value("enabled", component.enabled);
+                    component.volume = componentIt->value("volume", component.volume);
+                }
+
+                if (const auto componentIt = entityJson.find("prefabInstance");
+                    componentIt != entityJson.end() && componentIt->is_object())
+                {
+                    auto& component = entity.AddOrReplaceComponent<PrefabInstanceComponent>();
+                    component.prefabAsset = componentIt->value("prefabAsset", component.prefabAsset);
+                    component.sourceEntityId = componentIt->value("sourceEntityId", component.sourceEntityId);
+                    component.isRoot = componentIt->value("isRoot", component.isRoot);
                 }
 
                 if (const auto componentIt = entityJson.find("directionalLight");

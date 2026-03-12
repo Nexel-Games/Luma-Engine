@@ -26,6 +26,7 @@ namespace Luma
             void* hierarchyRigidBody = nullptr;
             void* hierarchyHinge = nullptr;
             void* viewportPanel = nullptr;
+            void* contentAudio = nullptr;
             void* physicsKinematicBody = nullptr;
             void* physicsColliderBox = nullptr;
             void* physicsColliderSphere = nullptr;

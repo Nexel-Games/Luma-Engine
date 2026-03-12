@@ -23,6 +23,7 @@
 #include "Luma/Asset/Streaming/ResourceStreamingService.h"
 #include "Luma/Editor/Content/ContentBrowserCache.h"
 #include "Luma/Editor/Content/ContentBrowserHostFacadeService.h"
+#include "Luma/Editor/Content/ContentRootWatchService.h"
 #include "Luma/Editor/Content/ContentThumbnailHostService.h"
 #include "Luma/Editor/Console/ConsoleCommandHostService.h"
 #include "Luma/Editor/Console/ConsolePanelHostService.h"
@@ -50,6 +51,7 @@
 #include "Luma/Editor/Panels/Scene/EntityCreationMenu.h"
 #include "Luma/Editor/Panels/Chrome/FooterBarPanel.h"
 #include "Luma/Editor/Panels/Rendering/GPUResourcesPanel.h"
+#include "Luma/Editor/Panels/Inspector/InspectorAudioPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorCameraLightingPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorDestructionPanel.h"
 #include "Luma/Editor/Panels/Content/ContentBrowserPanel.h"
@@ -164,6 +166,9 @@ namespace Luma
         void DrawFooter();
         void DrawGPUResourcesPanel();
         void DrawInspectorPanel();
+        void StartSceneAudioPlayback();
+        void StopSceneAudioPlayback();
+        void UpdateSceneAudioRuntime();
         void EnterPlayMode();
         void TogglePausePlayMode();
         bool StopPlayMode();
@@ -173,6 +178,18 @@ namespace Luma
             const std::filesystem::path& assetPath,
             EntityID parentEntity = entt::null,
             const std::array<float, 3>* worldPosition = nullptr);
+        std::filesystem::path BuildUniquePrefabAssetPath(std::string_view baseName) const;
+        EntityID FindPrefabInstanceRoot(EntityID entity) const;
+        void MarkPrefabInstanceHierarchy(EntityID rootEntity, const std::string& prefabAsset);
+        bool CreatePrefabFromEntity(EntityID rootEntity);
+        EntityID InstantiatePrefabAsset(const std::filesystem::path& prefabPath, EntityID parentEntity = entt::null);
+        bool ApplyPrefabInstance(EntityID entity);
+        bool RevertPrefabInstance(EntityID entity);
+        std::string GetPrefabInstanceStatus(EntityID entity);
+        std::vector<std::string> GetPrefabOverridePaths(EntityID entity);
+        bool RevertPrefabComponent(EntityID entity, std::string_view componentPath);
+        bool RevertPrefabOverridePath(EntityID entity, std::string_view overridePath);
+        void SelectPrefabAsset(EntityID entity);
         std::filesystem::path ResolveMaterialAssetDirectory(const std::filesystem::path& fallbackDirectory = {}) const;
         std::filesystem::path BuildUniqueMaterialAssetPath(
             const std::filesystem::path& directory,
@@ -328,6 +345,7 @@ namespace Luma
         Editor::HierarchyPanel m_HierarchyPanel;
         Editor::InspectorAddComponentPanel m_InspectorAddComponentPanel;
         Editor::InspectorAdvancedPhysicsPanel m_InspectorAdvancedPhysicsPanel;
+        Editor::InspectorAudioPanel m_InspectorAudioPanel;
         Editor::InspectorCameraLightingPanel m_InspectorCameraLightingPanel;
         Editor::InspectorDestructionPanel m_InspectorDestructionPanel;
         Editor::InspectorEntityPanel m_InspectorEntityPanel;
@@ -368,6 +386,7 @@ namespace Luma
         Editor::EditorStatusState m_EditorStatus;
         Editor::ContentBrowserCache m_ContentBrowserCache;
         Editor::ContentBrowserHostFacadeService m_ContentBrowserHostFacadeService;
+        Editor::ContentRootWatchService m_ContentRootWatchService;
         Editor::ContentThumbnailHostService m_ContentThumbnailHostService;
         Editor::MaterialTextureAssetPickerService m_MaterialTextureAssetPickerService;
         Editor::MeshEntityImportService m_MeshEntityImportService;
@@ -409,6 +428,17 @@ namespace Luma
         std::filesystem::path m_PlaySelectedContentEntry;
         EntityID m_PlayGameCameraEntity = entt::null;
         LuaScriptRuntime m_LuaScriptRuntime;
+        EntityID m_PrefabStatusCacheRootEntity = entt::null;
+        std::string m_PrefabStatusCachePrefabAsset;
+        std::string m_PrefabStatusCacheValue;
+        float m_PrefabStatusCacheTimeSeconds = -1000.0f;
+        bool m_PrefabStatusCacheSceneDirty = false;
+        EntityID m_PrefabOverrideCacheEntity = entt::null;
+        std::string m_PrefabOverrideCachePrefabAsset;
+        UUID m_PrefabOverrideCacheSourceEntityId = 0;
+        std::vector<std::string> m_PrefabOverrideCacheValue;
+        float m_PrefabOverrideCacheTimeSeconds = -1000.0f;
+        bool m_PrefabOverrideCacheSceneDirty = false;
         void* m_SkyboxPreviewTexture = nullptr;
         int m_SkyboxPreviewWidth = 0;
         int m_SkyboxPreviewHeight = 0;

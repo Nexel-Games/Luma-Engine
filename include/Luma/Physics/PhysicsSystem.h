@@ -3,6 +3,8 @@
 #include <memory>
 #include <string_view>
 
+#include <vector>
+
 #include "Luma/Physics/IPhysicsBackend.h"
 #include "Luma/Physics/PhysicsTypes.h"
 
@@ -23,6 +25,8 @@ namespace Luma
         bool IsEnabled() const;
 
         void Simulate(Scene& scene, float deltaTimeSeconds);
+        std::uint32_t ConsumeSimulatedStepCount();
+        void ConsumeEvents(std::vector<PhysicsEvent>& outEvents);
 
         const PhysicsSettings& GetSettings() const;
         PhysicsBackendType GetBackendType() const;
@@ -33,6 +37,7 @@ namespace Luma
         std::unique_ptr<IPhysicsBackend> m_Backend;
         PhysicsSettings m_Settings {};
         float m_Accumulator = 0.0f;
+        std::uint32_t m_LastSimulatedStepCount = 0;
         bool m_Enabled = true;
         bool m_Initialized = false;
     };

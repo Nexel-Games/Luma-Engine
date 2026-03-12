@@ -61,6 +61,7 @@ add_executable(
     engine/runtime/Core/Foundation/UUID.cpp
     engine/runtime/Core/Foundation/DynamicLibrary.cpp
     engine/runtime/Core/Foundation/StbImageWriteImpl.cpp
+    engine/runtime/Audio/Core/AudioSystem.cpp
     engine/runtime/Scripting/ScriptEngine.cpp
     engine/runtime/Scripting/LuaScriptRuntime.cpp
     engine/runtime/Scripting/Lua/LuaBindings.cpp
@@ -84,6 +85,7 @@ add_executable(
      src/Editor/Content/ContentBrowserController.cpp
      src/Editor/Content/ContentBrowserHostFacadeService.cpp
      src/Editor/Content/ContentBrowserHostService.cpp
+     src/Editor/Content/ContentRootWatchService.cpp
      src/Editor/Content/ContentThumbnailHostService.cpp
      src/Editor/Content/ContentImportService.cpp
      src/Editor/Content/ContentBrowserRefreshService.cpp
@@ -138,6 +140,7 @@ add_executable(
      src/Editor/Scene/SceneDocument.cpp
      src/Editor/Panels/Inspector/InspectorAddComponentPanel.cpp
      src/Editor/Panels/Inspector/InspectorAdvancedPhysicsPanel.cpp
+     src/Editor/Panels/Inspector/InspectorAudioPanel.cpp
      src/Editor/Panels/Inspector/InspectorCameraLightingPanel.cpp
      src/Editor/Panels/Inspector/InspectorDestructionPanel.cpp
      src/Editor/Panels/Content/ContentBrowserPanel.cpp
@@ -173,6 +176,7 @@ add_executable(
     src/Layers/ProjectManagerLayer.cpp
     src/Layers/TriangleLayer.cpp
     engine/runtime/Scene/Scene.cpp
+    engine/runtime/Scene/PrefabSerializer.cpp
     engine/runtime/Scene/SceneSerializer.cpp
     engine/runtime/Scene/VehicleTuningAsset.cpp
     engine/runtime/RHI/RHIFactory.cpp
@@ -189,6 +193,7 @@ add_executable(
     thirdparty/imgui/backends/imgui_impl_glfw.cpp
     thirdparty/imgui/backends/imgui_impl_opengl3.cpp
     thirdparty/ImGuizmo/ImGuizmo.cpp
+    thirdparty/miniaudio/miniaudio.c
     ${LUA_RUNTIME_SOURCES}
 )
 
@@ -240,6 +245,17 @@ target_link_libraries(
         comdlg32
         opengl32
 )
+
+if(WIN32)
+    target_link_libraries(
+        Luma
+        PRIVATE
+            winmm
+            ole32
+            uuid
+            avrt
+    )
+endif()
 
 if(LUMA_ENABLE_PHYSX)
     target_link_libraries(
@@ -346,5 +362,45 @@ if(BUILD_TESTING)
         PROPERTIES
             WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
             LABELS "smoke;opengl"
+    )
+    add_test(
+        NAME Luma.Smoke.LuaRuntime
+        COMMAND $<TARGET_FILE:Luma> --lua-runtime-smoke-test
+    )
+    set_tests_properties(
+        Luma.Smoke.LuaRuntime
+        PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            LABELS "smoke;lua;scripting"
+    )
+    add_test(
+        NAME Luma.Smoke.AudioRuntime
+        COMMAND $<TARGET_FILE:Luma> --audio-runtime-smoke-test
+    )
+    set_tests_properties(
+        Luma.Smoke.AudioRuntime
+        PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            LABELS "smoke;audio"
+    )
+    add_test(
+        NAME Luma.Smoke.SceneRuntime
+        COMMAND $<TARGET_FILE:Luma> --scene-runtime-smoke-test
+    )
+    set_tests_properties(
+        Luma.Smoke.SceneRuntime
+        PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            LABELS "smoke;scene;serialization"
+    )
+    add_test(
+        NAME Luma.Smoke.PrefabRuntime
+        COMMAND $<TARGET_FILE:Luma> --prefab-runtime-smoke-test
+    )
+    set_tests_properties(
+        Luma.Smoke.PrefabRuntime
+        PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            LABELS "smoke;prefab;serialization"
     )
 endif()

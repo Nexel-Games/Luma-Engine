@@ -1,5 +1,7 @@
 #include "Luma/Editor/Scene/EntityTemplateCreationService.h"
 
+#include "Luma/Scene/AudioListenerComponent.h"
+#include "Luma/Scene/AudioSourceComponent.h"
 #include "Luma/Scene/CameraComponent.h"
 #include "Luma/Scene/ColliderComponent.h"
 #include "Luma/Scene/DirectionalLightComponent.h"
@@ -40,6 +42,8 @@ namespace Luma::Editor
                 return "Sky Light";
             case EntityTemplateKind::Player:
                 return "Player";
+            case EntityTemplateKind::AudioSource:
+                return "Audio Source";
             default:
                 return "Entity";
             }
@@ -71,6 +75,11 @@ namespace Luma::Editor
             transform.rotation = { 0.0f, -90.0f, 0.0f };
             transform.dirty = true;
             entity.AddComponent<CameraComponent>();
+            entity.AddComponent<AudioListenerComponent>();
+        }
+        else if (templateKind == EntityTemplateKind::AudioSource)
+        {
+            entity.AddComponent<AudioSourceComponent>();
         }
         else if (templateKind == EntityTemplateKind::DirectionalLight)
         {

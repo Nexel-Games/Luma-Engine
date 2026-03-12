@@ -111,5 +111,11 @@ namespace Luma::Editor
             context.createTemplate(EntityTemplateKind::Player, context.parentEntity);
         }
         ShowItemTooltip("Create a default player entity template.");
+
+        if (MenuItemWithTooltip("Audio Source"))
+        {
+            context.createTemplate(EntityTemplateKind::AudioSource, context.parentEntity);
+        }
+        ShowItemTooltip("Create an audio source entity with an Audio Source component.");
     }
 }

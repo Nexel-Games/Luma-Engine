@@ -645,6 +645,14 @@ namespace Luma::Editor
                     {
                         pendingScenePath = entryPath;
                     }
+                    else if (!isDirectory &&
+                             ToLowerString(entryPath.extension().string()) == ".lumaprefab" &&
+                             hovered &&
+                             ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) &&
+                             context.openAsset)
+                    {
+                        context.openAsset(entryPath, entryName);
+                    }
 
                     ImDrawList* drawList = ImGui::GetWindowDrawList();
                     const ImU32 borderColor = selected ? IM_COL32(70, 160, 255, 255) : IM_COL32(80, 80, 80, 255);
@@ -732,7 +740,12 @@ namespace Luma::Editor
 
                     if (ImGui::BeginPopupContextItem("ContentBrowserItemMenu"))
                     {
-                        if (MenuItemWithTooltip("Open", "Open this folder, scene, or asset."))
+                        const bool isPrefabAsset = !isDirectory && ToLowerString(entryPath.extension().string()) == ".lumaprefab";
+                        const char* openLabel = isPrefabAsset ? "Instantiate Prefab" : "Open";
+                        const char* openTooltip = isPrefabAsset
+                            ? "Instantiate this prefab into the active scene."
+                            : "Open this folder, scene, or asset.";
+                        if (MenuItemWithTooltip(openLabel, openTooltip))
                         {
                             if (isDirectory)
                             {

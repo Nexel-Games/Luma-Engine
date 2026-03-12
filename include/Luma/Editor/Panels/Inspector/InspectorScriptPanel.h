@@ -6,6 +6,11 @@
 
 #include "Luma/Scene/Scene.h"
 
+namespace Luma
+{
+    class LuaScriptRuntime;
+}
+
 namespace Luma::Editor
 {
     struct InspectorScriptPanelContext
@@ -13,6 +18,8 @@ namespace Luma::Editor
         Scene* scene = nullptr;
         EntityID selectedEntity = entt::null;
         const std::filesystem::path* selectedContentEntry = nullptr;
+        ::Luma::LuaScriptRuntime* luaScriptRuntime = nullptr;
+        bool playModeActive = false;
         std::function<void(std::string)> setContentStatus;
     };
 

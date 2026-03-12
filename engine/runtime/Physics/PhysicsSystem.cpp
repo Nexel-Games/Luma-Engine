@@ -68,6 +68,7 @@ namespace Luma
         }
 
         m_Accumulator = 0.0f;
+        m_LastSimulatedStepCount = 0;
         m_Initialized = false;
     }
 
@@ -83,6 +84,7 @@ namespace Luma
 
     void PhysicsSystem::Simulate(Scene& scene, const float deltaTimeSeconds)
     {
+        m_LastSimulatedStepCount = 0;
         if (!m_Initialized || !m_Enabled || !m_Backend || deltaTimeSeconds <= 0.0f)
         {
             return;
@@ -102,10 +104,30 @@ namespace Luma
             ++subSteps;
         }
 
+        m_LastSimulatedStepCount = subSteps;
+
         if (subSteps == maxSubSteps && m_Accumulator > fixedStep * 4.0f)
         {
             m_Accumulator = fixedStep;
         }
+    }
+
+    std::uint32_t PhysicsSystem::ConsumeSimulatedStepCount()
+    {
+        const std::uint32_t stepCount = m_LastSimulatedStepCount;
+        m_LastSimulatedStepCount = 0;
+        return stepCount;
+    }
+
+    void PhysicsSystem::ConsumeEvents(std::vector<PhysicsEvent>& outEvents)
+    {
+        outEvents.clear();
+        if (!m_Backend)
+        {
+            return;
+        }
+
+        m_Backend->ConsumeEvents(outEvents);
     }
 
     const PhysicsSettings& PhysicsSystem::GetSettings() const

@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <unordered_set>
 #include <unordered_map>
 
@@ -44,9 +45,27 @@ namespace Luma
         bool Initialize(const PhysicsSettings& settings) override;
         void Shutdown() override;
         void Simulate(Scene& scene, float fixedDeltaTimeSeconds) override;
+        void ConsumeEvents(std::vector<PhysicsEvent>& outEvents) override;
 
     private:
 #if defined(LUMA_ENABLE_PHYSX) && LUMA_ENABLE_PHYSX
+        struct NativeSimulationEventCallback final : physx::PxSimulationEventCallback
+        {
+            explicit NativeSimulationEventCallback(PhysXBackend* owner)
+                : owner(owner)
+            {
+            }
+
+            void onConstraintBreak(physx::PxConstraintInfo*, physx::PxU32) override {}
+            void onWake(physx::PxActor**, physx::PxU32) override {}
+            void onSleep(physx::PxActor**, physx::PxU32) override {}
+            void onAdvance(const physx::PxRigidBody* const*, const physx::PxTransform*, const physx::PxU32) override {}
+            void onContact(const physx::PxContactPairHeader& pairHeader, const physx::PxContactPair* pairs, physx::PxU32 nbPairs) override;
+            void onTrigger(physx::PxTriggerPair* pairs, physx::PxU32 count) override;
+
+            PhysXBackend* owner = nullptr;
+        };
+
         struct NativeActorState
         {
             physx::PxRigidActor* actor = nullptr;
@@ -114,6 +133,8 @@ namespace Luma
 
         using NativeActorKey = std::uint32_t;
 
+        void QueuePhysicsEvent(NativeActorKey entityA, NativeActorKey entityB, PhysicsEventType type);
+
         void ShutdownNativePhysX();
         void DestroyNativeJoints();
         void DestroyNativeControllers();
@@ -159,6 +180,7 @@ namespace Luma
         physx::PxCookingParams m_PhysXCookingParams { physx::PxTolerancesScale() };
         physx::PxDefaultCpuDispatcher* m_PhysXDispatcher = nullptr;
         physx::PxScene* m_PhysXScene = nullptr;
+        NativeSimulationEventCallback m_SimulationEventCallback { this };
         physx::PxControllerManager* m_ControllerManager = nullptr;
         physx::PxMaterial* m_DefaultMaterial = nullptr;
         std::unordered_map<NativeActorKey, NativeActorState> m_NativeActors;
@@ -167,6 +189,7 @@ namespace Luma
         std::unordered_map<NativeActorKey, physx::PxJoint*> m_NativeJoints;
         std::unordered_map<std::string, NativeCookedMeshState> m_CookedMeshes;
         VehicleTuningAssetCacheService m_VehicleTuningAssetCacheService;
+        std::vector<PhysicsEvent> m_PendingEvents;
 #endif
 
         PhysicsSettings m_Settings {};
