@@ -11,6 +11,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(LUMA_ENABLE_PHYSX "Enable native PhysX backend integration" OFF)
 option(LUMA_ENABLE_BLAST "Enable Blast destruction runtime integration" OFF)
 
+set(LUMA_BLAST_RUNTIME_ROOT "${CMAKE_SOURCE_DIR}/thirdparty/Blast" CACHE PATH "Root directory containing vendored Blast runtime lib/bin folders")
+
+function(luma_require_file dependency_path dependency_label)
+    if(NOT EXISTS "${dependency_path}")
+        message(FATAL_ERROR "${dependency_label} is missing: ${dependency_path}")
+    endif()
+endfunction()
+
 file(GLOB LUA_RUNTIME_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/thirdparty/lua-5.5.0/src/*.c")
 list(FILTER LUA_RUNTIME_SOURCES EXCLUDE REGEX ".*/lua\\.c$")
@@ -233,6 +241,15 @@ set(GLFW_LIB_DEBUG "${CMAKE_SOURCE_DIR}/thirdparty/glfw/debug/lib/glfw3dll.lib")
 set(GLFW_LIB_RELEASE "${CMAKE_SOURCE_DIR}/thirdparty/glfw/lib/glfw3dll.lib")
 set(GLAD_LIB_DEBUG "${CMAKE_SOURCE_DIR}/thirdparty/glad/debug/lib/glad.lib")
 set(GLAD_LIB_RELEASE "${CMAKE_SOURCE_DIR}/thirdparty/glad/lib/glad.lib")
+set(GLFW_DLL_DEBUG "${CMAKE_SOURCE_DIR}/thirdparty/glfw/debug/bin/glfw3.dll")
+set(GLFW_DLL_RELEASE "${CMAKE_SOURCE_DIR}/thirdparty/glfw/bin/glfw3.dll")
+
+luma_require_file("${GLFW_LIB_DEBUG}" "Vendored GLFW debug import library")
+luma_require_file("${GLFW_LIB_RELEASE}" "Vendored GLFW release import library")
+luma_require_file("${GLAD_LIB_DEBUG}" "Vendored GLAD debug library")
+luma_require_file("${GLAD_LIB_RELEASE}" "Vendored GLAD release library")
+luma_require_file("${GLFW_DLL_DEBUG}" "Vendored GLFW debug runtime DLL")
+luma_require_file("${GLFW_DLL_RELEASE}" "Vendored GLFW release runtime DLL")
 
 target_link_libraries(
     Luma
@@ -271,19 +288,21 @@ if(LUMA_ENABLE_PHYSX)
 endif()
 
 if(LUMA_ENABLE_BLAST)
-    set(BLAST_RUNTIME_LIB_DIR "${CMAKE_SOURCE_DIR}/thirdparty/Blast/lib/vs18win64-runtime")
-    set(BLAST_RUNTIME_BIN_DIR "${CMAKE_SOURCE_DIR}/thirdparty/Blast/bin/vs18win64-runtime")
+    set(BLAST_RUNTIME_LIB_DIR "${LUMA_BLAST_RUNTIME_ROOT}/lib/vs18win64-runtime")
+    set(BLAST_RUNTIME_BIN_DIR "${LUMA_BLAST_RUNTIME_ROOT}/bin/vs18win64-runtime")
 
     foreach(_cfg debug release)
         foreach(_lib NvBlast_x64 NvBlastGlobals_x64 NvBlastTk_x64 NvBlastExtShaders_x64 NvBlastExtStress_x64)
-            if(NOT EXISTS "${BLAST_RUNTIME_LIB_DIR}/${_cfg}/${_lib}.lib")
-                message(FATAL_ERROR "Blast runtime library missing: ${BLAST_RUNTIME_LIB_DIR}/${_cfg}/${_lib}.lib. Build thirdparty/Blast runtime first.")
-            endif()
+            luma_require_file(
+                "${BLAST_RUNTIME_LIB_DIR}/${_cfg}/${_lib}.lib"
+                "Vendored Blast runtime library"
+            )
         endforeach()
         foreach(_dll NvBlast_x64 NvBlastGlobals_x64 NvBlastTk_x64 NvBlastExtShaders_x64 NvBlastExtStress_x64)
-            if(NOT EXISTS "${BLAST_RUNTIME_BIN_DIR}/${_cfg}/${_dll}.dll")
-                message(FATAL_ERROR "Blast runtime DLL missing: ${BLAST_RUNTIME_BIN_DIR}/${_cfg}/${_dll}.dll. Build thirdparty/Blast runtime first.")
-            endif()
+            luma_require_file(
+                "${BLAST_RUNTIME_BIN_DIR}/${_cfg}/${_dll}.dll"
+                "Vendored Blast runtime DLL"
+            )
         endforeach()
     endforeach()
 
@@ -327,9 +346,6 @@ endif()
 if(MSVC)
     target_compile_options(Luma PRIVATE /FS)
 endif()
-
-set(GLFW_DLL_DEBUG "${CMAKE_SOURCE_DIR}/thirdparty/glfw/debug/bin/glfw3.dll")
-set(GLFW_DLL_RELEASE "${CMAKE_SOURCE_DIR}/thirdparty/glfw/bin/glfw3.dll")
 
 add_custom_command(
     TARGET Luma POST_BUILD

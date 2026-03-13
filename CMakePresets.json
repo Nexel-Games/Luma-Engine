@@ -1,0 +1,65 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-vs18-base",
+      "hidden": true,
+      "generator": "Visual Studio 18 2026",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/build-vs18",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "LUMA_ENABLE_PHYSX": "ON",
+        "LUMA_ENABLE_BLAST": "ON"
+      }
+    },
+    {
+      "name": "windows-vs18-debug",
+      "displayName": "Windows VS18 Debug",
+      "inherits": "windows-vs18-base"
+    },
+    {
+      "name": "windows-vs18-release",
+      "displayName": "Windows VS18 Release",
+      "inherits": "windows-vs18-base"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-vs18-debug",
+      "configurePreset": "windows-vs18-debug",
+      "configuration": "Debug",
+      "targets": [
+        "Luma"
+      ],
+      "jobs": 8
+    },
+    {
+      "name": "windows-vs18-release",
+      "configurePreset": "windows-vs18-release",
+      "configuration": "Release",
+      "targets": [
+        "Luma"
+      ],
+      "jobs": 8
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-vs18-debug",
+      "configurePreset": "windows-vs18-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
