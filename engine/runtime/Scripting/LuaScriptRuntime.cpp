@@ -2362,6 +2362,17 @@ namespace Luma
             return 1;
         }
 
+        bool TryGetRenderableMaterialTarget(EntityID entity)
+        {
+            if (!IsSceneEntityValid(entity))
+            {
+                return false;
+            }
+
+            auto& registry = g_ActiveScriptScene->GetRegistry();
+            return registry.all_of<MaterialComponent>(entity) || registry.all_of<MeshRendererComponent>(entity);
+        }
+
         bool TryGetMaterialComponent(EntityID entity, MaterialComponent*& outComponent)
         {
             if (!IsSceneEntityValid(entity))
@@ -2386,6 +2397,17 @@ namespace Luma
             MaterialComponent*& outComponent)
         {
             return TryGetEntityFromProxy(state, index, outEntity) && TryGetMaterialComponent(outEntity, outComponent);
+        }
+
+        MaterialComponent& EnsureMaterialComponent(EntityID entity)
+        {
+            auto& registry = g_ActiveScriptScene->GetRegistry();
+            if (!registry.all_of<MaterialComponent>(entity))
+            {
+                registry.emplace<MaterialComponent>(entity);
+            }
+
+            return registry.get<MaterialComponent>(entity);
         }
 
         bool TryGetRigidBodyComponent(EntityID entity, RigidBodyComponent*& outComponent)
@@ -2819,22 +2841,32 @@ namespace Luma
         int LuaMaterialProxyGetColor(lua_State* state)
         {
             EntityID entity = entt::null;
-            MaterialComponent* material = nullptr;
-            if (!TryGetMaterialComponentFromProxy(state, 1, entity, material))
+            if (!TryGetEntityFromProxy(state, 1, entity) || !TryGetRenderableMaterialTarget(entity))
             {
                 lua_pushnil(state);
                 return 1;
             }
 
-            PushVec4(state, material->albedoColor);
+            auto& registry = g_ActiveScriptScene->GetRegistry();
+            if (registry.all_of<MaterialComponent>(entity))
+            {
+                PushVec4(state, registry.get<MaterialComponent>(entity).albedoColor);
+                return 1;
+            }
+            if (registry.all_of<MeshRendererComponent>(entity))
+            {
+                PushVec4(state, registry.get<MeshRendererComponent>(entity).color);
+                return 1;
+            }
+
+            lua_pushnil(state);
             return 1;
         }
 
         int LuaMaterialProxySetColor(lua_State* state)
         {
             EntityID entity = entt::null;
-            MaterialComponent* material = nullptr;
-            if (!TryGetMaterialComponentFromProxy(state, 1, entity, material))
+            if (!TryGetEntityFromProxy(state, 1, entity) || !TryGetRenderableMaterialTarget(entity))
             {
                 return 0;
             }
@@ -2850,12 +2882,12 @@ namespace Luma
                 channel = std::clamp(channel, 0.0f, 1.0f);
             }
 
-            material->albedoColor = color;
             auto& registry = g_ActiveScriptScene->GetRegistry();
             if (registry.all_of<MeshRendererComponent>(entity))
             {
                 registry.get<MeshRendererComponent>(entity).color = color;
             }
+            EnsureMaterialComponent(entity).albedoColor = color;
 
             return 0;
         }
@@ -2877,13 +2909,13 @@ namespace Luma
         int LuaMaterialProxySetMetallic(lua_State* state)
         {
             EntityID entity = entt::null;
-            MaterialComponent* material = nullptr;
-            if (!TryGetMaterialComponentFromProxy(state, 1, entity, material) || !lua_isnumber(state, 2))
+            if (!TryGetEntityFromProxy(state, 1, entity) || !TryGetRenderableMaterialTarget(entity) || !lua_isnumber(state, 2))
             {
                 return 0;
             }
 
-            material->metallic = std::clamp(static_cast<float>(lua_tonumber(state, 2)), 0.0f, 1.0f);
+            EnsureMaterialComponent(entity).metallic =
+                std::clamp(static_cast<float>(lua_tonumber(state, 2)), 0.0f, 1.0f);
             return 0;
         }
 
@@ -2904,13 +2936,13 @@ namespace Luma
         int LuaMaterialProxySetSmoothness(lua_State* state)
         {
             EntityID entity = entt::null;
-            MaterialComponent* material = nullptr;
-            if (!TryGetMaterialComponentFromProxy(state, 1, entity, material) || !lua_isnumber(state, 2))
+            if (!TryGetEntityFromProxy(state, 1, entity) || !TryGetRenderableMaterialTarget(entity) || !lua_isnumber(state, 2))
             {
                 return 0;
             }
 
-            material->smoothness = std::clamp(static_cast<float>(lua_tonumber(state, 2)), 0.0f, 1.0f);
+            EnsureMaterialComponent(entity).smoothness =
+                std::clamp(static_cast<float>(lua_tonumber(state, 2)), 0.0f, 1.0f);
             return 0;
         }
 
@@ -3415,6 +3447,11 @@ namespace Luma
                 lua_pushnumber(state, registry.get<PointLightComponent>(entity).intensity);
                 return 1;
             }
+            if (registry.all_of<SpotLightComponent>(entity))
+            {
+                lua_pushnumber(state, registry.get<SpotLightComponent>(entity).intensity);
+                return 1;
+            }
 
             lua_pushnil(state);
             return 1;
@@ -3437,6 +3474,10 @@ namespace Luma
             if (registry.all_of<PointLightComponent>(entity))
             {
                 registry.get<PointLightComponent>(entity).intensity = intensity;
+            }
+            if (registry.all_of<SpotLightComponent>(entity))
+            {
+                registry.get<SpotLightComponent>(entity).intensity = intensity;
             }
 
             return 0;
@@ -3575,6 +3616,11 @@ namespace Luma
                 lua_pushnumber(state, registry.get<PointLightComponent>(entity).intensity);
                 return 1;
             }
+            if (registry.all_of<SpotLightComponent>(entity))
+            {
+                lua_pushnumber(state, registry.get<SpotLightComponent>(entity).intensity);
+                return 1;
+            }
 
             lua_pushnil(state);
             return 1;
@@ -3597,6 +3643,10 @@ namespace Luma
             if (registry.all_of<PointLightComponent>(entity))
             {
                 registry.get<PointLightComponent>(entity).intensity = intensity;
+            }
+            if (registry.all_of<SpotLightComponent>(entity))
+            {
+                registry.get<SpotLightComponent>(entity).intensity = intensity;
             }
             return 0;
         }
@@ -3786,8 +3836,7 @@ namespace Luma
         int LuaEntityGetMaterial(lua_State* state)
         {
             EntityID entity = entt::null;
-            MaterialComponent* material = nullptr;
-            if (!TryGetEntityFromLua(state, 1, entity) || !TryGetMaterialComponent(entity, material))
+            if (!TryGetEntityFromLua(state, 1, entity) || !TryGetRenderableMaterialTarget(entity))
             {
                 lua_pushnil(state);
                 return 1;
