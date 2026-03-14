@@ -2011,7 +2011,11 @@ namespace Luma
             std::string& outError)
         {
             outError.clear();
-            const std::filesystem::path cameraMeshPath = ResolveEngineAssetPath("assets/Actors/Camera.obj");
+            std::filesystem::path cameraMeshPath = ResolveEngineAssetPath("assets/Actors/Camera.obj");
+            if (cameraMeshPath.empty())
+            {
+                cameraMeshPath = ResolveEngineAssetPath("assets/Actors/camera.glb");
+            }
             if (cameraMeshPath.empty())
             {
                 outError = "Camera actor mesh not found.";
@@ -2065,6 +2069,90 @@ namespace Luma
             material.specular = 0.35f;
             material.featureFlags = MaterialFeature_TwoSided;
             return material;
+        }
+
+        float AverageRgb(const std::array<float, 4>& color)
+        {
+            return (color[0] + color[1] + color[2]) / 3.0f;
+        }
+
+        MaterialRenderProxy BuildCameraActorImportedMaterial(
+            const Assets::MeshMaterialInfo& sourceMaterial,
+            const std::filesystem::path& sourcePath)
+        {
+            MaterialRenderProxy proxy = BuildImportedMaterialRenderProxy(sourceMaterial, sourcePath);
+            proxy.featureFlags |= MaterialFeature_TwoSided;
+
+            const std::string normalizedName = ToLowerString(proxy.name);
+            const bool isDarkBody =
+                normalizedName.find("defaultcameradark") != std::string::npos ||
+                normalizedName.find("hardplastic") != std::string::npos ||
+                normalizedName.find("matteboxhood") != std::string::npos ||
+                normalizedName.find("matteplastic") != std::string::npos ||
+                normalizedName.find("rubber") != std::string::npos ||
+                normalizedName.find("tophandlemetal") != std::string::npos ||
+                normalizedName.find("cpufan") != std::string::npos ||
+                normalizedName.find("filtertray") != std::string::npos;
+            const bool isMetal =
+                normalizedName.find("silver") != std::string::npos ||
+                normalizedName.find("screw") != std::string::npos ||
+                normalizedName.find("metal") != std::string::npos ||
+                normalizedName.find("washer") != std::string::npos ||
+                normalizedName.find("prong") != std::string::npos;
+            const bool isGlass =
+                normalizedName.find("glass") != std::string::npos ||
+                normalizedName.find("screen") != std::string::npos ||
+                normalizedName.find("lens") != std::string::npos;
+            const bool isRedAccent =
+                normalizedName.find("redsensor") != std::string::npos ||
+                normalizedName.find("shinyredbutton") != std::string::npos;
+
+            if (isDarkBody)
+            {
+                proxy.baseColor = { 0.055f, 0.055f, 0.060f, 1.0f };
+                proxy.subsurfaceColor = proxy.baseColor;
+                proxy.metallic = 0.0f;
+                proxy.roughness = 0.88f;
+                proxy.specular = 0.10f;
+                proxy.emissiveColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+                proxy.emissiveIntensity = 0.0f;
+            }
+            else if (isMetal)
+            {
+                proxy.baseColor = { 0.26f, 0.26f, 0.28f, 1.0f };
+                proxy.subsurfaceColor = proxy.baseColor;
+                proxy.metallic = 0.75f;
+                proxy.roughness = 0.42f;
+                proxy.specular = 0.18f;
+            }
+            else if (isGlass)
+            {
+                proxy.baseColor = { 0.12f, 0.14f, 0.18f, 1.0f };
+                proxy.subsurfaceColor = proxy.baseColor;
+                proxy.metallic = 0.0f;
+                proxy.roughness = 0.16f;
+                proxy.specular = 0.24f;
+                proxy.opacity = 1.0f;
+            }
+            else if (isRedAccent)
+            {
+                proxy.baseColor = { 0.70f, 0.07f, 0.07f, 1.0f };
+                proxy.subsurfaceColor = proxy.baseColor;
+                proxy.metallic = 0.0f;
+                proxy.roughness = 0.48f;
+                proxy.specular = 0.20f;
+            }
+            else if (AverageRgb(proxy.baseColor) < 0.03f &&
+                proxy.albedoTexture.empty() &&
+                proxy.emissiveTexture.empty())
+            {
+                proxy.baseColor = { 0.08f, 0.08f, 0.085f, 1.0f };
+                proxy.subsurfaceColor = proxy.baseColor;
+                proxy.roughness = std::max(proxy.roughness, 0.8f);
+                proxy.specular = std::min(proxy.specular, 0.14f);
+            }
+
+            return proxy;
         }
 
     }
@@ -4715,14 +4803,12 @@ namespace Luma
                 }
 
                 const auto& transform = cameraView.get<TransformComponent>(entity);
-                std::array<float, 3> markerRotation = transform.worldRotation;
-                markerRotation[1] -= 90.0f;
                 std::array<float, 3> markerScale = transform.worldScale;
                 markerScale[0] *= 0.18f;
                 markerScale[1] *= 0.18f;
                 markerScale[2] *= 0.18f;
                 const auto worldTransform =
-                    BuildTransformMatrix(transform.worldPosition, markerRotation, markerScale).elements;
+                    BuildTransformMatrix(transform.worldPosition, transform.worldRotation, markerScale).elements;
 
                 for (std::size_t partIndex = 0; partIndex < m_CameraActorMeshState.meshes.size(); ++partIndex)
                 {
@@ -4736,7 +4822,7 @@ namespace Luma
                     renderItem.meshRevision = 1;
                     renderItem.worldPosition = transform.worldPosition;
                     renderItem.worldTransform = worldTransform;
-                    renderItem.material = BuildImportedMaterialRenderProxy(
+                    renderItem.material = BuildCameraActorImportedMaterial(
                         m_CameraActorMeshState.parts[partIndex].material,
                         m_CameraActorMeshState.resolvedPath);
                     if (renderItem.material.name.empty())
