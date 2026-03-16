@@ -214,6 +214,68 @@ namespace Luma::Editor
         ioStatus = "Created a new untitled scene. Use Save Scene to name it.";
     }
 
+    bool SceneDocument::RestoreSnapshot(
+        Scene& scene,
+        const std::string_view snapshot,
+        std::string& ioStatus,
+        const Callbacks& callbacks)
+    {
+        if (snapshot.empty())
+        {
+            ioStatus = "Scene restore failed: snapshot is empty.";
+            return false;
+        }
+
+        std::error_code ec;
+        std::filesystem::path tempRoot = std::filesystem::temp_directory_path(ec);
+        if (ec || tempRoot.empty())
+        {
+            tempRoot = std::filesystem::current_path();
+        }
+
+        const auto uniqueStamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        const std::filesystem::path tempScenePath =
+            tempRoot / ("luma-scene-restore-" + std::to_string(uniqueStamp) + ".scene");
+
+        {
+            std::ofstream output(tempScenePath, std::ios::binary);
+            if (!output)
+            {
+                ioStatus = "Scene restore failed: unable to create temporary restore file.";
+                return false;
+            }
+
+            output.write(snapshot.data(), static_cast<std::streamsize>(snapshot.size()));
+            if (!output.good())
+            {
+                ioStatus = "Scene restore failed: unable to write temporary restore file.";
+                std::filesystem::remove(tempScenePath, ec);
+                return false;
+            }
+        }
+
+        Scene restoredScene;
+        std::string sceneError;
+        const bool loaded = SceneSerializer::Deserialize(tempScenePath, restoredScene, sceneError);
+        std::filesystem::remove(tempScenePath, ec);
+        if (!loaded)
+        {
+            ioStatus = "Scene restore failed: " + sceneError;
+            return false;
+        }
+
+        scene.Swap(restoredScene);
+        scene.UpdateWorldTransforms();
+        if (callbacks.afterLoad)
+        {
+            callbacks.afterLoad();
+        }
+
+        RefreshDirtyState(scene);
+        ioStatus = "Restored pre-play scene state.";
+        return true;
+    }
+
     bool SceneDocument::CaptureSnapshot(const Scene& scene, std::string& outSnapshot, std::string& outError) const
     {
         outSnapshot.clear();

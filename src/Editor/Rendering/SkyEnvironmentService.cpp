@@ -10,6 +10,7 @@
 #include <system_error>
 
 #include <stb_image.h>
+#include <tinyexr.h>
 
 namespace
 {
@@ -57,6 +58,108 @@ namespace
         default:
             return "Unknown";
         }
+    }
+
+    std::string ToLowerCopy(std::string value)
+    {
+        std::transform(
+            value.begin(),
+            value.end(),
+            value.begin(),
+            [](const unsigned char character)
+            {
+                return static_cast<char>(std::tolower(character));
+            });
+        return value;
+    }
+
+    float SanitizeHDRValue(const float value)
+    {
+        if (!std::isfinite(value))
+        {
+            return 0.0f;
+        }
+
+        return std::clamp(value, 0.0f, 65504.0f);
+    }
+
+    bool LoadSkyHDRIOrEXR(
+        const std::filesystem::path& imagePath,
+        std::vector<float>& outLinearPixels,
+        int& outWidth,
+        int& outHeight,
+        std::string& outError)
+    {
+        outLinearPixels.clear();
+        outWidth = 0;
+        outHeight = 0;
+
+        const std::string extension = ToLowerCopy(imagePath.extension().string());
+        if (extension == ".hdr")
+        {
+            int channels = 0;
+            float* hdrPixels = stbi_loadf(imagePath.string().c_str(), &outWidth, &outHeight, &channels, 3);
+            if (hdrPixels == nullptr || outWidth <= 0 || outHeight <= 0)
+            {
+                outError = "Failed to load HDR skybox: " + imagePath.string();
+                if (hdrPixels != nullptr)
+                {
+                    stbi_image_free(hdrPixels);
+                }
+                return false;
+            }
+
+            const std::size_t pixelCount = static_cast<std::size_t>(outWidth) * static_cast<std::size_t>(outHeight);
+            outLinearPixels.resize(pixelCount * 4ULL, 1.0f);
+            for (std::size_t index = 0; index < pixelCount; ++index)
+            {
+                outLinearPixels[index * 4ULL + 0] = SanitizeHDRValue(hdrPixels[index * 3ULL + 0]);
+                outLinearPixels[index * 4ULL + 1] = SanitizeHDRValue(hdrPixels[index * 3ULL + 1]);
+                outLinearPixels[index * 4ULL + 2] = SanitizeHDRValue(hdrPixels[index * 3ULL + 2]);
+            }
+
+            stbi_image_free(hdrPixels);
+            return true;
+        }
+
+        if (extension == ".exr")
+        {
+            float* exrPixels = nullptr;
+            const char* exrError = nullptr;
+            const int result = LoadEXR(&exrPixels, &outWidth, &outHeight, imagePath.string().c_str(), &exrError);
+            if (result != TINYEXR_SUCCESS || exrPixels == nullptr || outWidth <= 0 || outHeight <= 0)
+            {
+                if (exrError != nullptr)
+                {
+                    outError = exrError;
+                    FreeEXRErrorMessage(exrError);
+                }
+                else
+                {
+                    outError = "Failed to load EXR skybox: " + imagePath.string();
+                }
+                if (exrPixels != nullptr)
+                {
+                    std::free(exrPixels);
+                }
+                return false;
+            }
+
+            const std::size_t pixelCount = static_cast<std::size_t>(outWidth) * static_cast<std::size_t>(outHeight);
+            outLinearPixels.resize(pixelCount * 4ULL, 1.0f);
+            for (std::size_t index = 0; index < pixelCount; ++index)
+            {
+                outLinearPixels[index * 4ULL + 0] = SanitizeHDRValue(exrPixels[index * 4ULL + 0]);
+                outLinearPixels[index * 4ULL + 1] = SanitizeHDRValue(exrPixels[index * 4ULL + 1]);
+                outLinearPixels[index * 4ULL + 2] = SanitizeHDRValue(exrPixels[index * 4ULL + 2]);
+                outLinearPixels[index * 4ULL + 3] = SanitizeHDRValue(exrPixels[index * 4ULL + 3]);
+            }
+
+            std::free(exrPixels);
+            return true;
+        }
+
+        return false;
     }
 }
 
@@ -126,25 +229,14 @@ namespace Luma::Editor
         int sourceHeight = 0;
         int sourceChannels = 0;
         std::vector<float> linearPixels;
+        const std::string loweredExtension = ToLowerCopy(imagePath.extension().string());
 
-        if (stbi_is_hdr(imagePath.string().c_str()) != 0)
+        if (loweredExtension == ".hdr" || loweredExtension == ".exr")
         {
-            float* hdrPixels = stbi_loadf(
-                imagePath.string().c_str(),
-                &sourceWidth,
-                &sourceHeight,
-                &sourceChannels,
-                4);
-            if (hdrPixels == nullptr)
+            if (!LoadSkyHDRIOrEXR(imagePath, linearPixels, sourceWidth, sourceHeight, outError))
             {
-                outError = "Failed to load HDR skybox: " + imagePath.string();
                 return false;
             }
-
-            linearPixels.assign(
-                hdrPixels,
-                hdrPixels + static_cast<std::size_t>(sourceWidth) * static_cast<std::size_t>(sourceHeight) * 4ULL);
-            stbi_image_free(hdrPixels);
         }
         else
         {

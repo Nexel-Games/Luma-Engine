@@ -14,6 +14,7 @@ layout(std140, binding = 0) uniform ShadowData
 };
 
 out vec2 vUV;
+out float vProjectedDepth;
 
 #ifndef USES_WORLD_POSITION_OFFSET
 #define USES_WORLD_POSITION_OFFSET 0
@@ -40,5 +41,8 @@ void main()
     }
 #endif
 
-    gl_Position = uShadowViewProjection * uWorldTransform * vec4(localPosition, 1.0);
+    vec4 worldPosition = uWorldTransform * vec4(localPosition, 1.0);
+    vec4 clipPosition = uShadowViewProjection * worldPosition;
+    gl_Position = clipPosition;
+    vProjectedDepth = clipPosition.z / max(clipPosition.w, 1.0e-6);
 }

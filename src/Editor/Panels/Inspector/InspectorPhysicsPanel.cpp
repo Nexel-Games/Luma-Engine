@@ -133,6 +133,7 @@ namespace Luma::Editor
                 return "Primitive";
             }
         }
+
     }
 
     void InspectorPhysicsPanel::Draw(const InspectorPhysicsPanelContext& context)

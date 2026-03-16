@@ -22,7 +22,11 @@ namespace Luma
         const UUID uuid = GenerateUUID();
 
         m_Registry.emplace<IDComponent>(entity, uuid);
-        m_Registry.emplace<TagComponent>(entity, name.empty() ? "Entity" : name);
+        TagComponent tagComponent;
+        tagComponent.name = name.empty() ? "Entity" : name;
+        tagComponent.tag = "Untagged";
+        tagComponent.layer = "Default";
+        m_Registry.emplace<TagComponent>(entity, std::move(tagComponent));
         m_Registry.emplace<TransformComponent>(entity);
         m_Registry.emplace<RelationshipComponent>(entity);
         m_EntityByUUID[uuid] = entity;

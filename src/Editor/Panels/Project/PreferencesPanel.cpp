@@ -66,8 +66,7 @@ namespace Luma::Editor
         ShowItemTooltip("Mouse wheel zoom speed.");
         CheckboxWithTooltip("Camera Debug Overlay", &viewportController.ShowCameraDebugOverlay());
         ShowItemTooltip("Show camera yaw/pitch/debug text in viewport.");
-        CheckboxWithTooltip("Preview Scene Camera Lens", &viewportController.PreviewSceneCameraLens());
-        ShowItemTooltip("Use scene camera lens FOV for viewport preview.");
+        ImGui::TextDisabled("Scene viewport uses the editor camera. Play mode switches the same viewport to the active game camera.");
 
         ImGui::End();
     }

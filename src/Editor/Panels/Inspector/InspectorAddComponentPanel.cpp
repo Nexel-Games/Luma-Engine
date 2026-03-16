@@ -10,20 +10,24 @@
 #include <imgui.h>
 
 #include "Luma/Editor/UI/TooltipAPI.h"
+#include "Luma/Scene/AudioListenerComponent.h"
+#include "Luma/Scene/AudioSourceComponent.h"
 #include "Luma/Scene/BuoyancyComponent.h"
 #include "Luma/Scene/CameraComponent.h"
 #include "Luma/Scene/CharacterControllerComponent.h"
 #include "Luma/Scene/ColliderComponent.h"
 #include "Luma/Scene/D6JointComponent.h"
+#include "Luma/Scene/DestructibleComponent.h"
 #include "Luma/Scene/DirectionalLightComponent.h"
 #include "Luma/Scene/FixedJointComponent.h"
 #include "Luma/Scene/ForceFieldComponent.h"
 #include "Luma/Scene/HingeJointComponent.h"
 #include "Luma/Scene/JointComponent.h"
+#include "Luma/Scene/LuaScriptComponent.h"
 #include "Luma/Scene/MaterialComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
-#include "Luma/Scene/PhysicsEventsComponent.h"
 #include "Luma/Scene/PointLightComponent.h"
+#include "Luma/Scene/PhysicsEventsComponent.h"
 #include "Luma/Scene/PostProcessComponent.h"
 #include "Luma/Scene/RagdollComponent.h"
 #include "Luma/Scene/RigidBodyComponent.h"
@@ -31,6 +35,7 @@
 #include "Luma/Scene/SkyLightComponent.h"
 #include "Luma/Scene/SpotLightComponent.h"
 #include "Luma/Scene/VehicleComponent.h"
+#include "Luma/Scene/VehicleInputComponent.h"
 #include "Luma/Scene/WheelColliderComponent.h"
 
 namespace Luma::Editor
@@ -145,6 +150,9 @@ namespace Luma::Editor
         const bool canAddMesh = !registry.all_of<MeshRendererComponent>(context.selectedEntity);
         const bool canAddMaterial = !registry.all_of<MaterialComponent>(context.selectedEntity);
         const bool canAddCamera = !registry.all_of<CameraComponent>(context.selectedEntity);
+        const bool canAddAudioSource = !registry.all_of<AudioSourceComponent>(context.selectedEntity);
+        const bool canAddAudioListener = !registry.all_of<AudioListenerComponent>(context.selectedEntity);
+        const bool canAddLuaScript = !registry.all_of<LuaScriptComponent>(context.selectedEntity);
         const bool canAddDirectional = !registry.all_of<DirectionalLightComponent>(context.selectedEntity);
         const bool canAddPoint = !registry.all_of<PointLightComponent>(context.selectedEntity);
         const bool canAddSpot = !registry.all_of<SpotLightComponent>(context.selectedEntity);
@@ -160,21 +168,27 @@ namespace Luma::Editor
         const bool canAddCharacterController = !registry.all_of<CharacterControllerComponent>(context.selectedEntity);
         const bool canAddWheelCollider = !registry.all_of<WheelColliderComponent>(context.selectedEntity);
         const bool canAddVehicle = !registry.all_of<VehicleComponent>(context.selectedEntity);
+        const bool canAddVehicleInput = !registry.all_of<VehicleInputComponent>(context.selectedEntity);
         const bool canAddForceField = !registry.all_of<ForceFieldComponent>(context.selectedEntity);
         const bool canAddBuoyancy = !registry.all_of<BuoyancyComponent>(context.selectedEntity);
         const bool canAddPhysicsEvents = !registry.all_of<PhysicsEventsComponent>(context.selectedEntity);
         const bool canAddRagdoll = !registry.all_of<RagdollComponent>(context.selectedEntity);
+        const bool canAddDestructible = !registry.all_of<DestructibleComponent>(context.selectedEntity);
         const bool canAddAny =
-            canAddMesh || canAddMaterial || canAddCamera || canAddDirectional || canAddPoint || canAddSpot || canAddSky || canAddPostProcess || canAddRigidBody || canAddCollider ||
+            canAddMesh || canAddMaterial || canAddCamera || canAddAudioSource || canAddAudioListener || canAddLuaScript || canAddDirectional || canAddPoint || canAddSpot || canAddSky || canAddPostProcess || canAddRigidBody || canAddCollider ||
             canAddJoint || canAddFixedJoint || canAddHingeJoint || canAddSliderJoint || canAddD6Joint ||
-            canAddCharacterController || canAddWheelCollider || canAddVehicle || canAddForceField || canAddBuoyancy ||
-            canAddPhysicsEvents || canAddRagdoll;
+            canAddCharacterController || canAddWheelCollider || canAddVehicle || canAddVehicleInput || canAddForceField || canAddBuoyancy ||
+            canAddPhysicsEvents || canAddRagdoll || canAddDestructible;
         bool displayedAny = false;
 
         const bool hasRenderingEntries =
             (canAddMesh && matchesFilter("Mesh Renderer")) ||
             (canAddMaterial && matchesFilter("Material"));
         const bool hasCameraEntries = canAddCamera && matchesFilter("Camera");
+        const bool hasAudioEntries =
+            (canAddAudioSource && matchesFilter("Audio Source")) ||
+            (canAddAudioListener && matchesFilter("Audio Listener"));
+        const bool hasScriptingEntries = canAddLuaScript && matchesFilter("Lua Script");
         const bool hasLightingEntries =
             (canAddDirectional && matchesFilter("Directional Light")) ||
             (canAddPoint && matchesFilter("Point Light")) ||
@@ -195,7 +209,8 @@ namespace Luma::Editor
             (canAddForceField && matchesFilter("Force Field")) ||
             (canAddBuoyancy && matchesFilter("Buoyancy")) ||
             (canAddPhysicsEvents && matchesFilter("Physics Events")) ||
-            (canAddRagdoll && matchesFilter("Ragdoll"));
+            (canAddRagdoll && matchesFilter("Ragdoll")) ||
+            (canAddDestructible && matchesFilter("Destruction"));
 
         if (hasRenderingEntries && ImGui::BeginMenu("Rendering"))
         {
@@ -263,6 +278,44 @@ namespace Luma::Editor
             ImGui::EndMenu();
         }
 
+        if (hasAudioEntries && ImGui::BeginMenu("Audio"))
+        {
+            displayedAny = true;
+            ShowItemTooltip("Audio playback and listener components.");
+            if (canAddAudioSource && matchesFilter("Audio Source"))
+            {
+                if (MenuItemWithTooltip("Audio Source"))
+                {
+                    registry.emplace<AudioSourceComponent>(context.selectedEntity);
+                    ImGui::CloseCurrentPopup();
+                }
+                ShowItemTooltip("Adds an audio source for clip playback on this entity.");
+            }
+            if (canAddAudioListener && matchesFilter("Audio Listener"))
+            {
+                if (MenuItemWithTooltip("Audio Listener"))
+                {
+                    registry.emplace<AudioListenerComponent>(context.selectedEntity);
+                    ImGui::CloseCurrentPopup();
+                }
+                ShowItemTooltip("Adds an audio listener used as the active 3D listener in Play mode.");
+            }
+            ImGui::EndMenu();
+        }
+
+        if (hasScriptingEntries && ImGui::BeginMenu("Scripting"))
+        {
+            displayedAny = true;
+            ShowItemTooltip("Gameplay scripting components.");
+            if (MenuItemWithTooltip("Lua Script"))
+            {
+                registry.emplace<LuaScriptComponent>(context.selectedEntity);
+                ImGui::CloseCurrentPopup();
+            }
+            ShowItemTooltip("Adds a Lua script component to this entity.");
+            ImGui::EndMenu();
+        }
+
         if (hasLightingEntries && ImGui::BeginMenu("Lighting"))
         {
             displayedAny = true;
@@ -284,7 +337,7 @@ namespace Luma::Editor
                     registry.emplace<PointLightComponent>(context.selectedEntity);
                     ImGui::CloseCurrentPopup();
                 }
-                ShowItemTooltip("Adds omni-directional local lighting.");
+                ShowItemTooltip("Adds omnidirectional local lighting.");
             }
 
             if (canAddSpot && matchesFilter("Spot Light"))
@@ -424,6 +477,13 @@ namespace Luma::Editor
                     {
                         auto& wheel = registry.emplace<WheelColliderComponent>(context.selectedEntity);
                         wheel.active = true;
+                        wheel.steerable = false;
+                        wheel.driven = false;
+                        wheel.handbrakeAffected = false;
+                        wheel.axleType = VehicleAxleType::Front;
+                        wheel.suspensionRestLength = wheel.suspensionTravel;
+                        wheel.suspensionMaxCompression = wheel.suspensionTravel * 0.5f;
+                        wheel.suspensionMaxDroop = wheel.suspensionTravel * 0.5f;
                         ImGui::CloseCurrentPopup();
                     }
                     ShowItemTooltip("Add vehicle wheel collision and suspension settings.");
@@ -497,17 +557,36 @@ namespace Luma::Editor
                 ImGui::EndMenu();
             }
 
-            if (canAddVehicle && matchesFilter("Vehicle") && ImGui::BeginMenu("Vehicles"))
+            const bool hasVehicleEntries =
+                (canAddVehicle && matchesFilter("Vehicle")) ||
+                (canAddVehicleInput && matchesFilter("Vehicle Input"));
+            if (hasVehicleEntries && ImGui::BeginMenu("Vehicles"))
             {
                 ShowItemTooltip("Vehicle simulation components.");
-                if (MenuItemWithTooltip("Vehicle"))
+                if (canAddVehicle && matchesFilter("Vehicle") && MenuItemWithTooltip("Vehicle"))
                 {
                     auto& vehicle = registry.emplace<VehicleComponent>(context.selectedEntity);
                     vehicle.active = true;
+                    vehicle.simulationEnabled = true;
+                    vehicle.inputSource = VehicleInputSource::Player;
                     vehicle.inputMap = "Vehicle.Default";
                     ImGui::CloseCurrentPopup();
                 }
-                ShowItemTooltip("Add high-level chassis and drivetrain settings for vehicle simulation.");
+                if (canAddVehicle && matchesFilter("Vehicle"))
+                {
+                    ShowItemTooltip("Add high-level chassis and drivetrain settings for vehicle simulation.");
+                }
+
+                if (canAddVehicleInput && matchesFilter("Vehicle Input"))
+                {
+                    if (MenuItemWithTooltip("Vehicle Input"))
+                    {
+                        auto& input = registry.emplace<VehicleInputComponent>(context.selectedEntity);
+                        input.active = true;
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ShowItemTooltip("Add a dedicated runtime input block for throttle, brake, steering, and handbrake.");
+                }
                 ImGui::EndMenu();
             }
 
@@ -563,6 +642,24 @@ namespace Luma::Editor
                     ImGui::CloseCurrentPopup();
                 }
                 ShowItemTooltip("Bind skeleton/physics assets for animation-to-physics blending.");
+                ImGui::EndMenu();
+            }
+
+            if (canAddDestructible && matchesFilter("Destruction") && ImGui::BeginMenu("Destruction"))
+            {
+                ShowItemTooltip("Destruction and fracture components.");
+                if (MenuItemWithTooltip("Destructible"))
+                {
+                    auto& destructible = registry.emplace<DestructibleComponent>(context.selectedEntity);
+                    destructible.active = true;
+                    destructible.visibleIntactMesh = true;
+                    destructible.fractureOnImpact = true;
+                    destructible.accumulateDamage = true;
+                    destructible.worldSupport = true;
+                    destructible.activationMode = DestructionActivationMode::StartIntact;
+                    ImGui::CloseCurrentPopup();
+                }
+                ShowItemTooltip("Adds Blast-ready destruction settings for fracture, chunk, and damage behavior.");
                 ImGui::EndMenu();
             }
             ImGui::EndMenu();

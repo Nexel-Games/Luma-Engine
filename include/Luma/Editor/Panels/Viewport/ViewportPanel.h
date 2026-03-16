@@ -18,10 +18,12 @@ namespace Luma::Editor
     struct ViewportPanelContext
     {
         bool* open = nullptr;
+        void* panelIconTexture = nullptr;
         EditorViewportController* viewportController = nullptr;
         IRenderBackend* renderer = nullptr;
         void* skyboxPreviewTexture = nullptr;
         bool showColliderDebug = false;
+        bool gamePreviewActive = false;
         float deltaTimeSeconds = 0.0f;
         std::function<float()> resolveLensFovDegrees;
         std::function<bool(const ImVec2&, const ImVec2&)> isInputBlockedByPopup;
@@ -29,7 +31,6 @@ namespace Luma::Editor
         std::function<void(ImDrawList*, const ImVec2&)> drawToolbar;
         std::function<void(ImDrawList*, const ImVec2&, const ImVec2&, EntityID)> drawDebugOverlay;
         std::function<void(ImDrawList*, const ImVec2&, const ImVec2&, const ImVec2&, bool, EntityID)> handleInteraction;
-        std::function<EntityID()> findEditorCameraEntity;
     };
 
     class ViewportPanel

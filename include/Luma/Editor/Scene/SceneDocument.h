@@ -37,6 +37,7 @@ namespace Luma::Editor
         bool LoadFromPath(Scene& scene, const std::filesystem::path& scenePath, std::string& ioStatus, const Callbacks& callbacks = {});
         bool SaveToPath(Scene& scene, const std::filesystem::path& scenePath, std::string& ioStatus, const Callbacks& callbacks = {});
         void CreateNew(Scene& scene, std::string& ioStatus, const Callbacks& callbacks = {});
+        bool RestoreSnapshot(Scene& scene, std::string_view snapshot, std::string& ioStatus, const Callbacks& callbacks = {});
 
         bool CaptureSnapshot(const Scene& scene, std::string& outSnapshot, std::string& outError) const;
         void RefreshDirtyState(const Scene& scene);

@@ -5,11 +5,14 @@
 
 #include "Luma/Core/Foundation/Logging.h"
 #include "Physics/Backends/PhysXBackend.h"
+#include "Luma/Scene/VehicleInputSystem.h"
 
 namespace Luma
 {
     namespace
     {
+        VehicleInputSystem g_VehicleInputSystem;
+
         std::unique_ptr<IPhysicsBackend> CreateBackend(const PhysicsBackendType type)
         {
             switch (type)
@@ -65,6 +68,7 @@ namespace Luma
         }
 
         m_Accumulator = 0.0f;
+        m_LastSimulatedStepCount = 0;
         m_Initialized = false;
     }
 
@@ -80,10 +84,13 @@ namespace Luma
 
     void PhysicsSystem::Simulate(Scene& scene, const float deltaTimeSeconds)
     {
+        m_LastSimulatedStepCount = 0;
         if (!m_Initialized || !m_Enabled || !m_Backend || deltaTimeSeconds <= 0.0f)
         {
             return;
         }
+
+        g_VehicleInputSystem.UpdatePlayerInputs(scene);
 
         const float fixedStep = std::clamp(m_Settings.fixedTimeStep, 1.0e-4f, 0.5f);
         const std::uint32_t maxSubSteps = std::max<std::uint32_t>(1u, m_Settings.maxSubSteps);
@@ -97,10 +104,30 @@ namespace Luma
             ++subSteps;
         }
 
+        m_LastSimulatedStepCount = subSteps;
+
         if (subSteps == maxSubSteps && m_Accumulator > fixedStep * 4.0f)
         {
             m_Accumulator = fixedStep;
         }
+    }
+
+    std::uint32_t PhysicsSystem::ConsumeSimulatedStepCount()
+    {
+        const std::uint32_t stepCount = m_LastSimulatedStepCount;
+        m_LastSimulatedStepCount = 0;
+        return stepCount;
+    }
+
+    void PhysicsSystem::ConsumeEvents(std::vector<PhysicsEvent>& outEvents)
+    {
+        outEvents.clear();
+        if (!m_Backend)
+        {
+            return;
+        }
+
+        m_Backend->ConsumeEvents(outEvents);
     }
 
     const PhysicsSettings& PhysicsSystem::GetSettings() const

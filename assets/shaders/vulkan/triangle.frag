@@ -13,10 +13,12 @@ layout(set = 0, binding = 14) uniform sampler2D uAmbientOcclusionTex;
 layout(set = 0, binding = 9) uniform sampler2D uEmissiveTex;
 layout(set = 0, binding = 10) uniform sampler2D uOpacityTex;
 layout(set = 0, binding = 11) uniform sampler2D uHeightTex;
+layout(set = 0, binding = 16) uniform sampler2D uLightmapTex;
 layout(set = 0, binding = 5) uniform sampler2D uIrradianceTex;
 layout(set = 0, binding = 6) uniform sampler2D uPrefilteredEnvironmentTex;
 layout(set = 0, binding = 7) uniform sampler2D uDirectionalShadowTex;
 layout(set = 0, binding = 8) uniform sampler2D uSpotShadowTex;
+layout(set = 0, binding = 15) uniform sampler2D uPointShadowTex;
 
 layout(set = 0, binding = 0) uniform PerDrawData
 {
@@ -29,6 +31,9 @@ layout(set = 0, binding = 0) uniform PerDrawData
     vec4 uvTransform0;
     vec4 uvTransform1;
     vec4 materialParameters2;
+    vec4 subsurfaceAndCoat;
+    vec4 materialParameters3;
+    vec4 lightmapParams;
 } uPerDraw;
 
 layout(set = 0, binding = 4) uniform LightingData
@@ -56,8 +61,12 @@ layout(set = 0, binding = 4) uniform LightingData
     vec4 spotDirectionInner[4];
     vec4 spotColorOuter[4];
     mat4 directionalShadowMatrix;
+    mat4 pointShadowMatrices[6];
     mat4 spotShadowMatrix;
     vec4 directionalShadowParams;
+    vec4 pointShadowParams;
+    vec4 pointShadowLightPositionRange;
+    vec4 pointShadowAtlasInvSize;
     vec4 spotShadowParams;
 } uLighting;
 
@@ -159,6 +168,17 @@ float ComputeDistanceAttenuation(float distanceSq, float range)
     return (falloff * falloff) / (1.0 + distanceSq);
 }
 
+float ComputeGodotOmniAttenuation(float distance, float range, float attenuation)
+{
+    float invRange = 1.0 / max(range, 1.0e-4);
+    float nd = distance * invRange;
+    nd *= nd;
+    nd *= nd;
+    nd = max(1.0 - nd, 0.0);
+    nd *= nd;
+    return nd * pow(max(distance, 1.0e-4), -max(attenuation, 1.0e-4));
+}
+
 float SampleShadowMap(sampler2D shadowMap, mat4 shadowMatrix, vec3 worldPos, float bias, float texelSize)
 {
     vec4 shadowCoord = shadowMatrix * vec4(worldPos, 1.0);
@@ -181,6 +201,67 @@ float SampleShadowMap(sampler2D shadowMap, mat4 shadowMatrix, vec3 worldPos, flo
             vec2 offset = vec2(float(x), float(y)) * texelSize;
             float storedDepth = texture(shadowMap, projected.xy + offset).r;
             visibility += projected.z - bias <= storedDepth ? 1.0 : 0.0;
+        }
+    }
+
+    return visibility * 0.25;
+}
+
+int SelectPointShadowFace(vec3 lightToSurface)
+{
+    vec3 absDir = abs(lightToSurface);
+    if (absDir.x >= absDir.y && absDir.x >= absDir.z)
+    {
+        return lightToSurface.x >= 0.0 ? 0 : 1;
+    }
+    if (absDir.y >= absDir.x && absDir.y >= absDir.z)
+    {
+        return lightToSurface.y >= 0.0 ? 2 : 3;
+    }
+    return lightToSurface.z >= 0.0 ? 4 : 5;
+}
+
+float SamplePointShadow(vec3 worldPos)
+{
+    if (uLighting.pointShadowParams.x <= 0.5)
+    {
+        return 1.0;
+    }
+
+    vec3 lightToSurface = worldPos - uLighting.pointShadowLightPositionRange.xyz;
+    float distanceToLight = length(lightToSurface);
+    if (distanceToLight <= 1.0e-5 || distanceToLight >= uLighting.pointShadowLightPositionRange.w)
+    {
+        return 1.0;
+    }
+
+    int faceIndex = SelectPointShadowFace(lightToSurface);
+    vec4 shadowCoord = uLighting.pointShadowMatrices[faceIndex] * vec4(worldPos, 1.0);
+    if (shadowCoord.w <= 0.0)
+    {
+        return 1.0;
+    }
+
+    vec3 projected = shadowCoord.xyz / shadowCoord.w;
+    if (projected.x <= 0.0 || projected.x >= 1.0 || projected.y <= 0.0 || projected.y >= 1.0 || projected.z <= 0.0 || projected.z >= 1.0)
+    {
+        return 1.0;
+    }
+
+    if (uLighting.pointShadowParams.w <= 0.5)
+    {
+        float storedDepth = texture(uPointShadowTex, projected.xy).r;
+        return projected.z - uLighting.pointShadowParams.y <= storedDepth ? 1.0 : 0.0;
+    }
+
+    float visibility = 0.0;
+    for (int y = -1; y <= 0; ++y)
+    {
+        for (int x = -1; x <= 0; ++x)
+        {
+            vec2 offset = vec2(float(x) * uLighting.pointShadowAtlasInvSize.x, float(y) * uLighting.pointShadowAtlasInvSize.y);
+            float storedDepth = texture(uPointShadowTex, projected.xy + offset).r;
+            visibility += projected.z - uLighting.pointShadowParams.y <= storedDepth ? 1.0 : 0.0;
         }
     }
 
@@ -252,6 +333,10 @@ void main()
         albedo *
         (1.0 - metallic) *
         mix(0.42, 1.18, skyVisibility);
+    vec3 bakedLighting =
+        uPerDraw.lightmapParams.x > 0.5
+            ? texture(uLightmapTex, vUV).rgb * albedo
+            : vec3(0.0);
 
     vec3 halfVector = normalize(directionalDir + viewDir);
     float specPower = mix(128.0, 8.0, roughness);
@@ -304,7 +389,10 @@ void main()
     {
         vec3 toLight = uLighting.pointPositionRange[index].xyz - vWorldPos;
         float distanceSq = dot(toLight, toLight);
-        float attenuation = ComputeDistanceAttenuation(distanceSq, uLighting.pointPositionRange[index].w);
+        float attenuation = ComputeGodotOmniAttenuation(
+            sqrt(max(distanceSq, 0.0)),
+            uLighting.pointPositionRange[index].w,
+            uLighting.pointColorIntensity[index].a);
         if (attenuation <= 0.0)
         {
             continue;
@@ -315,6 +403,11 @@ void main()
         vec3 localHalf = normalize(lightDir + viewDir);
         float localSpecFactor = pow(max(dot(n, localHalf), 0.0), specPower) * localNDotL;
         vec3 lightRadiance = uLighting.pointColorIntensity[index].rgb * attenuation;
+        if (uLighting.pointShadowParams.x > 0.5 &&
+            abs(float(index) - uLighting.pointShadowParams.z) < 0.5)
+        {
+            lightRadiance *= SamplePointShadow(vWorldPos);
+        }
         localDiffuse += lightRadiance * localNDotL * albedo * (1.0 - metallic);
         localSpecular += lightRadiance * localSpecFactor * fresnel;
     }
@@ -398,7 +491,7 @@ void main()
         max(uPerDraw.emissiveColorIntensity.a, 0.0);
     vec3 litColor =
         vColor *
-        (ambient + directionalDiffuse + directionalSpecular + localDiffuse + localSpecular + iblDiffuse + iblSpecular + directionalBounce);
+        (ambient + bakedLighting + directionalDiffuse + directionalSpecular + localDiffuse + localSpecular + iblDiffuse + iblSpecular + directionalBounce);
     vec3 color = litColor;
 #if MATERIAL_SHADINGMODEL_UNLIT
     color = albedo * vColor;

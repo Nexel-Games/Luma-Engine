@@ -24,6 +24,7 @@ namespace Luma::Editor
         bool drawSceneTexture = false;
         EntityID lensSourceEntity = entt::null;
         std::function<void()> onSelectionChanged;
+        std::function<void()> onTransformChanged;
     };
 
     class EditorViewportInteraction

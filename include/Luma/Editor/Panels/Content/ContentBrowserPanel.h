@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -46,6 +47,7 @@ namespace Luma::Editor
         std::function<void(const std::filesystem::path&)> requestLoadScene;
         std::function<void()> refresh;
         std::function<void()> createFolder;
+        std::function<void(const std::string&)> createScript;
         std::function<void(const std::filesystem::path&, const std::string&)> openAsset;
     };
 
@@ -53,5 +55,9 @@ namespace Luma::Editor
     {
     public:
         void Draw(ContentBrowserPanelContext& context);
+
+    private:
+        bool m_FocusCreateScriptName = false;
+        std::array<char, 128> m_CreateScriptNameBuffer { "NewScript" };
     };
 }

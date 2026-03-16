@@ -32,6 +32,7 @@ namespace Luma::Editor
         int* skyEnvironmentWidth = nullptr;
         int* skyEnvironmentHeight = nullptr;
         std::function<EntityID()> findPrimarySkyEntity;
+        std::function<std::filesystem::path(const std::string&)> resolveAssetPath;
         std::function<std::array<float, 3>(const SkyColorEvalContext&)> evaluateSkyColor;
     };
 

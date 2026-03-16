@@ -1,6 +1,7 @@
 #include "Luma/Editor/Content/ContentBrowserController.h"
 
 #include <algorithm>
+#include <fstream>
 #include <system_error>
 
 #include <imgui.h>
@@ -72,6 +73,141 @@ namespace Luma::Editor
 
             const char separator = normalizedPath[normalizedRoot.size()];
             return separator == '/' || separator == '\\';
+        }
+
+        std::string TrimString(std::string value)
+        {
+            auto isWhitespace = [](const unsigned char c)
+            {
+                return std::isspace(c) != 0;
+            };
+
+            value.erase(
+                value.begin(),
+                std::find_if(
+                    value.begin(),
+                    value.end(),
+                    [&](const unsigned char c)
+                    {
+                        return !isWhitespace(c);
+                    }));
+
+            value.erase(
+                std::find_if(
+                    value.rbegin(),
+                    value.rend(),
+                    [&](const unsigned char c)
+                    {
+                        return !isWhitespace(c);
+                    }).base(),
+                value.end());
+
+            return value;
+        }
+
+        std::string SanitizeScriptFileStem(std::string value)
+        {
+            value = TrimString(std::move(value));
+            if (value.empty())
+            {
+                return "NewScript";
+            }
+
+            for (char& character : value)
+            {
+                const unsigned char code = static_cast<unsigned char>(character);
+                if (code < 32 ||
+                    character == '<' ||
+                    character == '>' ||
+                    character == ':' ||
+                    character == '"' ||
+                    character == '/' ||
+                    character == '\\' ||
+                    character == '|' ||
+                    character == '?' ||
+                    character == '*')
+                {
+                    character = '_';
+                }
+            }
+
+            while (!value.empty() && (value.back() == ' ' || value.back() == '.'))
+            {
+                value.pop_back();
+            }
+
+            if (value.empty())
+            {
+                return "NewScript";
+            }
+
+            return value;
+        }
+
+        std::string BuildLuaIdentifier(std::string value)
+        {
+            value = TrimString(std::move(value));
+
+            std::string identifier;
+            identifier.reserve(value.size());
+            for (const char character : value)
+            {
+                const unsigned char code = static_cast<unsigned char>(character);
+                if (std::isalnum(code) != 0 || character == '_')
+                {
+                    identifier.push_back(character);
+                }
+                else if (character == ' ' || character == '-')
+                {
+                    identifier.push_back('_');
+                }
+            }
+
+            if (identifier.empty())
+            {
+                identifier = "NewScript";
+            }
+
+            const unsigned char first = static_cast<unsigned char>(identifier.front());
+            if (std::isdigit(first) != 0)
+            {
+                identifier.insert(identifier.begin(), '_');
+            }
+
+            return identifier;
+        }
+
+        std::string StripLuaExtension(std::string value)
+        {
+            constexpr std::string_view luaExtension = ".lua";
+            if (value.size() >= luaExtension.size())
+            {
+                std::string lowered = ToLowerString(value);
+                if (lowered.compare(lowered.size() - luaExtension.size(), luaExtension.size(), luaExtension) == 0)
+                {
+                    value.erase(value.size() - luaExtension.size());
+                }
+            }
+
+            return value;
+        }
+
+        std::filesystem::path BuildUniqueScriptPath(
+            const std::filesystem::path& directory,
+            const std::string& requestedStem)
+        {
+            std::error_code ec;
+            for (int suffixIndex = 0; suffixIndex < 1000; ++suffixIndex)
+            {
+                const std::string suffix = suffixIndex == 0 ? "" : " " + std::to_string(suffixIndex);
+                const std::filesystem::path candidate = directory / (requestedStem + suffix + ".lua");
+                if (!std::filesystem::exists(candidate, ec))
+                {
+                    return candidate;
+                }
+            }
+
+            return {};
         }
     }
 
@@ -536,6 +672,49 @@ namespace Luma::Editor
                     context.refreshEntries();
                 }
             }
+        };
+        panelContext.createScript = [&](const std::string& requestedName)
+        {
+            const std::string strippedName = StripLuaExtension(requestedName);
+            const std::string scriptStem = SanitizeScriptFileStem(strippedName);
+
+            std::error_code ec;
+            std::filesystem::create_directories(currentDirectory, ec);
+            if (ec)
+            {
+                status = "Failed to create script folder: " + currentDirectory.filename().string();
+                return;
+            }
+
+            const std::filesystem::path scriptPath = BuildUniqueScriptPath(currentDirectory, scriptStem);
+            if (scriptPath.empty())
+            {
+                status = "Failed to pick a script name in: " + currentDirectory.filename().string();
+                return;
+            }
+
+            const std::string scriptIdentifier = BuildLuaIdentifier(scriptPath.stem().string());
+            std::ofstream output(scriptPath, std::ios::out | std::ios::trunc);
+            if (!output.is_open())
+            {
+                status = "Failed to create script: " + scriptPath.filename().string();
+                return;
+            }
+
+            output
+                << "local " << scriptIdentifier << " = {}\n\n"
+                << "function " << scriptIdentifier << ":OnCreate()\n"
+                << "end\n\n"
+                << "function " << scriptIdentifier << ":OnUpdate(dt)\n"
+                << "end\n\n"
+                << "function " << scriptIdentifier << ":OnDestroy()\n"
+                << "end\n\n"
+                << "return " << scriptIdentifier << "\n";
+            output.close();
+
+            selectedEntry = scriptPath;
+            status = "Created script: " + scriptPath.filename().string();
+            context.refreshEntries();
         };
         panelContext.openAsset = [&](const std::filesystem::path& assetPath, const std::string& entryName)
         {

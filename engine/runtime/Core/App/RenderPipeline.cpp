@@ -62,6 +62,7 @@ namespace Luma
             float materialParameters2[4] = { 1.0f, 0.0f, 1.0f, 0.0f };
             float subsurfaceAndCoat[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
             float materialParameters3[4] = { 0.1f, 0.0f, 0.0f, 0.0f };
+            float lightmapParams[4] = { 0.0f, 1.0f, 0.0f, 0.0f };
         };
 
         struct FloatImage
@@ -74,6 +75,20 @@ namespace Luma
         inline void HashCombine(std::size_t& seed, const std::size_t value)
         {
             seed ^= value + 0x9e3779b9u + (seed << 6u) + (seed >> 2u);
+        }
+
+        Color ToColor(const std::array<float, 4>& value)
+        {
+            return { value[0], value[1], value[2], value[3] };
+        }
+
+        bool ColorsDiffer(const Color& lhs, const Color& rhs, const float epsilon = 1.0e-5f)
+        {
+            return
+                std::abs(lhs.r - rhs.r) > epsilon ||
+                std::abs(lhs.g - rhs.g) > epsilon ||
+                std::abs(lhs.b - rhs.b) > epsilon ||
+                std::abs(lhs.a - rhs.a) > epsilon;
         }
 
         struct ShadowPerDrawData
@@ -289,6 +304,22 @@ namespace Luma
             return bias;
         }
 
+        Mat4 BuildAtlasTransform(
+            const float offsetX,
+            const float offsetY,
+            const float scaleX,
+            const float scaleY)
+        {
+            Mat4 result {};
+            result.elements = {
+                scaleX, 0.0f, 0.0f, 0.0f,
+                0.0f, scaleY, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f,
+                offsetX, offsetY, 0.0f, 1.0f
+            };
+            return result;
+        }
+
         constexpr std::array<float, 16> kIdentityMatrix = {
             1.0f, 0.0f, 0.0f, 0.0f,
             0.0f, 1.0f, 0.0f, 0.0f,
@@ -303,6 +334,29 @@ namespace Luma
         constexpr std::uint32_t kPrefilterLevelCount = 5;
         constexpr std::uint32_t kDirectionalShadowMapSize = 1024;
         constexpr std::uint32_t kSpotShadowMapSize = 768;
+        constexpr std::uint32_t kPointShadowMapSize = 512;
+        constexpr std::uint32_t kPointShadowAtlasColumns = 3;
+        constexpr std::uint32_t kPointShadowAtlasRows = 2;
+        constexpr std::uint32_t kPointShadowAtlasWidth = kPointShadowMapSize * kPointShadowAtlasColumns;
+        constexpr std::uint32_t kPointShadowAtlasHeight = kPointShadowMapSize * kPointShadowAtlasRows;
+
+        std::uint32_t NormalizePointShadowResolution(const std::uint32_t resolution)
+        {
+            std::uint32_t clamped = std::clamp<std::uint32_t>(resolution, 128u, 2048u);
+            std::uint32_t normalized = 128u;
+            while (normalized < clamped && normalized < 2048u)
+            {
+                normalized <<= 1u;
+            }
+
+            const std::uint32_t lower = normalized >> 1u;
+            if (lower >= 128u && normalized - clamped > clamped - lower)
+            {
+                normalized = lower;
+            }
+
+            return std::clamp<std::uint32_t>(normalized, 128u, 2048u);
+        }
 
         float SRGB8ToLinear(const std::uint8_t value)
         {
@@ -581,7 +635,9 @@ namespace Luma
                 DescriptorBindingDesc { 8, DescriptorType::CombinedImageSampler, 0 },
                 DescriptorBindingDesc { 9, DescriptorType::CombinedImageSampler, 0 },
                 DescriptorBindingDesc { 10, DescriptorType::CombinedImageSampler, 0 },
-                DescriptorBindingDesc { 11, DescriptorType::CombinedImageSampler, 0 }
+                DescriptorBindingDesc { 11, DescriptorType::CombinedImageSampler, 0 },
+                DescriptorBindingDesc { 16, DescriptorType::CombinedImageSampler, 0 },
+                DescriptorBindingDesc { 15, DescriptorType::CombinedImageSampler, 0 }
             };
             pipelineDesc.shaders = shaderProgram;
 
@@ -733,6 +789,7 @@ namespace Luma
 
                 m_RenderBackend = &renderer;
                 m_ResourceManager = &resourceManager;
+                m_PointShadowMapSize = kPointShadowMapSize;
 
                 RenderPassDesc renderPassDesc;
                 renderPassDesc.debugName = std::string(GetDebugName()) + ".MainPass";
@@ -1005,8 +1062,17 @@ namespace Luma
                 spotShadowTargetDesc.clearColor = { 1.0f, 1.0f, 1.0f, 1.0f };
                 m_SpotShadowRenderTarget = resourceManager.CreateRenderTarget(spotShadowTargetDesc);
 
+                RenderTargetDesc pointShadowTargetDesc;
+                pointShadowTargetDesc.debugName = std::string(GetDebugName()) + ".PointShadowTarget";
+                pointShadowTargetDesc.width = m_PointShadowMapSize * kPointShadowAtlasColumns;
+                pointShadowTargetDesc.height = m_PointShadowMapSize * kPointShadowAtlasRows;
+                pointShadowTargetDesc.srgb = false;
+                pointShadowTargetDesc.clearColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+                m_PointShadowRenderTarget = resourceManager.CreateRenderTarget(pointShadowTargetDesc);
+
                 if (m_DirectionalShadowRenderTarget == InvalidResourceHandle ||
-                    m_SpotShadowRenderTarget == InvalidResourceHandle)
+                    m_SpotShadowRenderTarget == InvalidResourceHandle ||
+                    m_PointShadowRenderTarget == InvalidResourceHandle)
                 {
                     Shutdown(renderer, resourceManager);
                     return false;
@@ -1022,8 +1088,14 @@ namespace Luma
                 spotShadowFramebufferDesc.colorTarget = m_SpotShadowRenderTarget;
                 m_SpotShadowFramebuffer = resourceManager.CreateFramebuffer(spotShadowFramebufferDesc);
 
+                FramebufferDesc pointShadowFramebufferDesc;
+                pointShadowFramebufferDesc.debugName = std::string(GetDebugName()) + ".PointShadowFramebuffer";
+                pointShadowFramebufferDesc.colorTarget = m_PointShadowRenderTarget;
+                m_PointShadowFramebuffer = resourceManager.CreateFramebuffer(pointShadowFramebufferDesc);
+
                 if (m_DirectionalShadowFramebuffer == InvalidResourceHandle ||
-                    m_SpotShadowFramebuffer == InvalidResourceHandle)
+                    m_SpotShadowFramebuffer == InvalidResourceHandle ||
+                    m_PointShadowFramebuffer == InvalidResourceHandle)
                 {
                     Shutdown(renderer, resourceManager);
                     return false;
@@ -1041,8 +1113,15 @@ namespace Luma
                 spotShadowPassDesc.framebuffer = m_SpotShadowFramebuffer;
                 m_SpotShadowRenderPass = resourceManager.CreateRenderPass(spotShadowPassDesc);
 
+                RenderPassDesc pointShadowPassDesc;
+                pointShadowPassDesc.debugName = std::string(GetDebugName()) + ".PointShadowPass";
+                pointShadowPassDesc.clearColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+                pointShadowPassDesc.framebuffer = m_PointShadowFramebuffer;
+                m_PointShadowRenderPass = resourceManager.CreateRenderPass(pointShadowPassDesc);
+
                 if (m_DirectionalShadowRenderPass == InvalidResourceHandle ||
-                    m_SpotShadowRenderPass == InvalidResourceHandle)
+                    m_SpotShadowRenderPass == InvalidResourceHandle ||
+                    m_PointShadowRenderPass == InvalidResourceHandle)
                 {
                     Shutdown(renderer, resourceManager);
                     return false;
@@ -1050,9 +1129,12 @@ namespace Luma
 
                 m_DirectionalShadowPipelineState = resourceManager.CreatePipelineState(
                     BuildShadowPipelineDesc(GetDebugName(), m_DirectionalShadowRenderPass, shadowShaderVariant.programDesc));
+                m_PointShadowPipelineState = resourceManager.CreatePipelineState(
+                    BuildShadowPipelineDesc(GetDebugName(), m_PointShadowRenderPass, shadowShaderVariant.programDesc));
                 m_SpotShadowPipelineState = resourceManager.CreatePipelineState(
                     BuildShadowPipelineDesc(GetDebugName(), m_SpotShadowRenderPass, shadowShaderVariant.programDesc));
                 if (m_DirectionalShadowPipelineState == InvalidResourceHandle ||
+                    m_PointShadowPipelineState == InvalidResourceHandle ||
                     m_SpotShadowPipelineState == InvalidResourceHandle)
                 {
                     Shutdown(renderer, resourceManager);
@@ -1069,6 +1151,16 @@ namespace Luma
                     directionalShadowDescriptorDesc,
                     std::string(GetDebugName()) + ".DirectionalShadow");
 
+                DescriptorSetDesc pointShadowDescriptorDesc;
+                pointShadowDescriptorDesc.buffers.push_back(
+                    DescriptorBufferWrite { 0, std::vector<std::uint8_t>(sizeof(ShadowPerDrawData), 0) });
+                pointShadowDescriptorDesc.images.push_back(DescriptorImageWrite { 1, m_DefaultOpacityTexture });
+                pointShadowDescriptorDesc.images.push_back(DescriptorImageWrite { 2, m_DefaultHeightTexture });
+                m_PointShadowDescriptorSet = resourceManager.CreateDescriptorSet(
+                    m_PointShadowPipelineState,
+                    pointShadowDescriptorDesc,
+                    std::string(GetDebugName()) + ".PointShadow");
+
                 DescriptorSetDesc spotShadowDescriptorDesc;
                 spotShadowDescriptorDesc.buffers.push_back(
                     DescriptorBufferWrite { 0, std::vector<std::uint8_t>(sizeof(ShadowPerDrawData), 0) });
@@ -1080,6 +1172,7 @@ namespace Luma
                     std::string(GetDebugName()) + ".SpotShadow");
 
                 if (m_DirectionalShadowDescriptorSet == InvalidResourceHandle ||
+                    m_PointShadowDescriptorSet == InvalidResourceHandle ||
                     m_SpotShadowDescriptorSet == InvalidResourceHandle)
                 {
                     Shutdown(renderer, resourceManager);
@@ -1122,6 +1215,10 @@ namespace Luma
                     {
                         resourceManager.DestroyMesh(item.mesh, GPUResourceManager::DestroyMode::Deferred);
                     }
+                    if (item.bakedLightmapTexture != InvalidTextureHandle)
+                    {
+                        resourceManager.DestroyTexture(item.bakedLightmapTexture, GPUResourceManager::DestroyMode::Deferred);
+                    }
                 }
                 m_RenderItems.clear();
                 m_RenderItemOrder.clear();
@@ -1132,6 +1229,11 @@ namespace Luma
                 {
                     resourceManager.DestroyDescriptorSet(m_DirectionalShadowDescriptorSet, GPUResourceManager::DestroyMode::Deferred);
                     m_DirectionalShadowDescriptorSet = InvalidResourceHandle;
+                }
+                if (m_PointShadowDescriptorSet != InvalidResourceHandle)
+                {
+                    resourceManager.DestroyDescriptorSet(m_PointShadowDescriptorSet, GPUResourceManager::DestroyMode::Deferred);
+                    m_PointShadowDescriptorSet = InvalidResourceHandle;
                 }
                 if (m_SpotShadowDescriptorSet != InvalidResourceHandle)
                 {
@@ -1173,6 +1275,11 @@ namespace Luma
                     resourceManager.DestroyPipelineState(m_DirectionalShadowPipelineState, GPUResourceManager::DestroyMode::Deferred);
                     m_DirectionalShadowPipelineState = InvalidResourceHandle;
                 }
+                if (m_PointShadowPipelineState != InvalidResourceHandle)
+                {
+                    resourceManager.DestroyPipelineState(m_PointShadowPipelineState, GPUResourceManager::DestroyMode::Deferred);
+                    m_PointShadowPipelineState = InvalidResourceHandle;
+                }
                 if (m_SpotShadowPipelineState != InvalidResourceHandle)
                 {
                     resourceManager.DestroyPipelineState(m_SpotShadowPipelineState, GPUResourceManager::DestroyMode::Deferred);
@@ -1187,6 +1294,11 @@ namespace Luma
                 {
                     resourceManager.DestroyRenderPass(m_DirectionalShadowRenderPass, GPUResourceManager::DestroyMode::Deferred);
                     m_DirectionalShadowRenderPass = InvalidResourceHandle;
+                }
+                if (m_PointShadowRenderPass != InvalidResourceHandle)
+                {
+                    resourceManager.DestroyRenderPass(m_PointShadowRenderPass, GPUResourceManager::DestroyMode::Deferred);
+                    m_PointShadowRenderPass = InvalidResourceHandle;
                 }
                 if (m_SpotShadowRenderPass != InvalidResourceHandle)
                 {
@@ -1204,6 +1316,11 @@ namespace Luma
                     resourceManager.DestroyFramebuffer(m_DirectionalShadowFramebuffer, GPUResourceManager::DestroyMode::Deferred);
                     m_DirectionalShadowFramebuffer = InvalidResourceHandle;
                 }
+                if (m_PointShadowFramebuffer != InvalidResourceHandle)
+                {
+                    resourceManager.DestroyFramebuffer(m_PointShadowFramebuffer, GPUResourceManager::DestroyMode::Deferred);
+                    m_PointShadowFramebuffer = InvalidResourceHandle;
+                }
                 if (m_SpotShadowFramebuffer != InvalidResourceHandle)
                 {
                     resourceManager.DestroyFramebuffer(m_SpotShadowFramebuffer, GPUResourceManager::DestroyMode::Deferred);
@@ -1213,6 +1330,11 @@ namespace Luma
                 {
                     resourceManager.DestroyRenderTarget(m_DirectionalShadowRenderTarget, GPUResourceManager::DestroyMode::Deferred);
                     m_DirectionalShadowRenderTarget = InvalidResourceHandle;
+                }
+                if (m_PointShadowRenderTarget != InvalidResourceHandle)
+                {
+                    resourceManager.DestroyRenderTarget(m_PointShadowRenderTarget, GPUResourceManager::DestroyMode::Deferred);
+                    m_PointShadowRenderTarget = InvalidResourceHandle;
                 }
                 if (m_SpotShadowRenderTarget != InvalidResourceHandle)
                 {
@@ -1249,8 +1371,11 @@ namespace Luma
                 m_CurrentEnvironmentSourceHeight = 0;
                 m_HasPrefilteredEnvironment = false;
                 m_HasDirectionalShadow = false;
+                m_HasPointShadow = false;
                 m_HasSpotShadow = false;
+                m_ShadowedPointLightIndex = -1;
                 m_ShadowedSpotLightIndex = -1;
+                m_PointShadowMapSize = kPointShadowMapSize;
                 m_TextureSystem.Shutdown();
                 m_ShaderSystem.Shutdown();
                 m_Initialized = false;
@@ -1288,6 +1413,10 @@ namespace Luma
                 m_CameraWorldPosition = sceneView.cameraWorldPosition;
                 m_CurrentEnvironmentTexture = ResolveSourceEnvironmentTexture(sceneView.imageBasedLight);
                 RefreshImageBasedLighting(sceneView.imageBasedLight);
+                if (!EnsurePointShadowResources(ResolveDesiredPointShadowMapSize(sceneView)))
+                {
+                    return;
+                }
                 UpdateShadowState(sceneView);
                 m_LightingSystem.SetCameraWorldPosition(sceneView.cameraWorldPosition);
                 m_LightingSystem.SetAmbientLight(sceneView.ambientLightColor, sceneView.ambientLightIntensity);
@@ -1299,6 +1428,15 @@ namespace Luma
                     m_HasDirectionalShadow,
                     0.0018f,
                     1.0f / static_cast<float>(kDirectionalShadowMapSize));
+                m_LightingSystem.SetPointShadow(
+                    m_PointShadowTextureMatrices,
+                    m_PointShadowLightPositionRange,
+                    m_HasPointShadow,
+                    m_PointShadowBias,
+                    m_PointShadowSoftShadows,
+                    static_cast<float>(m_ShadowedPointLightIndex),
+                    1.0f / static_cast<float>(std::max(m_PointShadowMapSize * kPointShadowAtlasColumns, 1u)),
+                    1.0f / static_cast<float>(std::max(m_PointShadowMapSize * kPointShadowAtlasRows, 1u)));
                 m_LightingSystem.SetSpotShadow(
                     m_SpotShadowTextureMatrix,
                     m_HasSpotShadow,
@@ -1371,6 +1509,13 @@ namespace Luma
                     postProcess.bloomKnee = 0.6f;
                 }
                 m_LightingSystem.SetPostProcess(postProcess);
+
+                const Color desiredSceneClearColor = ToColor(sceneView.clearColor);
+                if (ColorsDiffer(desiredSceneClearColor, m_SceneClearColor))
+                {
+                    m_SceneClearColor = desiredSceneClearColor;
+                    DestroyScenePassResources();
+                }
 
                 bool scenePassRebuilt = false;
                 if (!EnsureScenePassResources(sceneView.outputWidth, sceneView.outputHeight, &scenePassRebuilt))
@@ -1550,7 +1695,7 @@ namespace Luma
                 sceneColorTargetDesc.height = targetHeight;
                 sceneColorTargetDesc.format = GpuTextureFormat::RGBA16F;
                 sceneColorTargetDesc.srgb = false;
-                sceneColorTargetDesc.clearColor = GetClearColor();
+                sceneColorTargetDesc.clearColor = m_SceneClearColor;
                 m_SceneColorRenderTarget = m_ResourceManager->CreateRenderTarget(sceneColorTargetDesc);
                 if (m_SceneColorRenderTarget == InvalidResourceHandle)
                 {
@@ -1570,7 +1715,7 @@ namespace Luma
 
                 RenderPassDesc sceneRenderPassDesc;
                 sceneRenderPassDesc.debugName = std::string(GetDebugName()) + ".ScenePass";
-                sceneRenderPassDesc.clearColor = GetClearColor();
+                sceneRenderPassDesc.clearColor = m_SceneClearColor;
                 sceneRenderPassDesc.framebuffer = m_SceneFramebuffer;
                 m_SceneRenderPass = m_ResourceManager->CreateRenderPass(sceneRenderPassDesc);
                 if (m_SceneRenderPass == InvalidResourceHandle)
@@ -1733,6 +1878,8 @@ namespace Luma
             {
                 std::uint64_t revision = 0;
                 MeshHandle mesh = InvalidResourceHandle;
+                TextureHandle bakedLightmapTexture = InvalidTextureHandle;
+                std::uint64_t bakedLightmapRevision = 0;
                 std::array<float, 3> worldPosition { 0.0f, 0.0f, 0.0f };
                 std::array<float, 16> worldTransform = kIdentityMatrix;
                 std::string materialPipelineKey;
@@ -1765,8 +1912,10 @@ namespace Luma
                 std::string key;
                 ShaderProgramDesc shaderProgram {};
                 PipelineStateHandle directionalPipelineState = InvalidResourceHandle;
+                PipelineStateHandle pointPipelineState = InvalidResourceHandle;
                 PipelineStateHandle spotPipelineState = InvalidResourceHandle;
                 DescriptorSetHandle directionalDescriptorSet = InvalidResourceHandle;
+                DescriptorSetHandle pointDescriptorSet = InvalidResourceHandle;
                 DescriptorSetHandle spotDescriptorSet = InvalidResourceHandle;
             };
 
@@ -2057,21 +2206,6 @@ namespace Luma
                 }
 
                 float localLuminance = 0.0f;
-                for (std::size_t index = 0; index < sceneView.pointLightCount; ++index)
-                {
-                    const PointLightDesc& light = sceneView.pointLights[index];
-                    if (!light.enabled)
-                    {
-                        continue;
-                    }
-
-                    const float rangeWeight = std::clamp(light.range * 0.08f, 0.15f, 2.5f);
-                    localLuminance +=
-                        Luminance(light.color) *
-                        std::max(light.intensity, 0.0f) *
-                        rangeWeight;
-                }
-
                 for (std::size_t index = 0; index < sceneView.spotLightCount; ++index)
                 {
                     const SpotLightDesc& light = sceneView.spotLights[index];
@@ -2139,12 +2273,176 @@ namespace Luma
                 imageBasedLight.exposureMultiplier = std::exp2(m_CurrentAutoExposureEV);
             }
 
+            std::uint32_t ResolveDesiredPointShadowMapSize(const SceneView& sceneView) const
+            {
+                for (std::size_t index = 0; index < sceneView.pointLightCount; ++index)
+                {
+                    const PointLightDesc& pointLight = sceneView.pointLights[index];
+                    if (!pointLight.enabled || !pointLight.castsShadows || pointLight.range <= 0.05f)
+                    {
+                        continue;
+                    }
+
+                    return NormalizePointShadowResolution(pointLight.shadowResolution);
+                }
+
+                return kPointShadowMapSize;
+            }
+
+            void InvalidateShadowPipelineCaches()
+            {
+                for (auto& [_, resources] : m_ShadowMaterialPipelines)
+                {
+                    DestroyShadowPipelineResources(resources);
+                }
+                m_ShadowMaterialPipelines.clear();
+                m_DefaultShadowPipelineKey.clear();
+                m_LastShadowTextureBindingHashes.clear();
+            }
+
+            void DestroyPointShadowResources()
+            {
+                if (m_ResourceManager == nullptr)
+                {
+                    m_PointShadowDescriptorSet = InvalidResourceHandle;
+                    m_PointShadowPipelineState = InvalidResourceHandle;
+                    m_PointShadowRenderPass = InvalidResourceHandle;
+                    m_PointShadowFramebuffer = InvalidResourceHandle;
+                    m_PointShadowRenderTarget = InvalidResourceHandle;
+                    return;
+                }
+
+                if (m_PointShadowDescriptorSet != InvalidResourceHandle)
+                {
+                    m_ResourceManager->DestroyDescriptorSet(m_PointShadowDescriptorSet, GPUResourceManager::DestroyMode::Deferred);
+                    m_PointShadowDescriptorSet = InvalidResourceHandle;
+                }
+                if (m_PointShadowPipelineState != InvalidResourceHandle)
+                {
+                    m_ResourceManager->DestroyPipelineState(m_PointShadowPipelineState, GPUResourceManager::DestroyMode::Deferred);
+                    m_PointShadowPipelineState = InvalidResourceHandle;
+                }
+                if (m_PointShadowRenderPass != InvalidResourceHandle)
+                {
+                    m_ResourceManager->DestroyRenderPass(m_PointShadowRenderPass, GPUResourceManager::DestroyMode::Deferred);
+                    m_PointShadowRenderPass = InvalidResourceHandle;
+                }
+                if (m_PointShadowFramebuffer != InvalidResourceHandle)
+                {
+                    m_ResourceManager->DestroyFramebuffer(m_PointShadowFramebuffer, GPUResourceManager::DestroyMode::Deferred);
+                    m_PointShadowFramebuffer = InvalidResourceHandle;
+                }
+                if (m_PointShadowRenderTarget != InvalidResourceHandle)
+                {
+                    m_ResourceManager->DestroyRenderTarget(m_PointShadowRenderTarget, GPUResourceManager::DestroyMode::Deferred);
+                    m_PointShadowRenderTarget = InvalidResourceHandle;
+                }
+            }
+
+            bool EnsurePointShadowResources(const std::uint32_t desiredMapSize)
+            {
+                if (m_ResourceManager == nullptr)
+                {
+                    return false;
+                }
+
+                const std::uint32_t normalizedMapSize = NormalizePointShadowResolution(desiredMapSize);
+                const bool resourcesMissing =
+                    m_PointShadowRenderTarget == InvalidResourceHandle ||
+                    m_PointShadowFramebuffer == InvalidResourceHandle ||
+                    m_PointShadowRenderPass == InvalidResourceHandle ||
+                    m_PointShadowPipelineState == InvalidResourceHandle ||
+                    m_PointShadowDescriptorSet == InvalidResourceHandle;
+                if (!resourcesMissing && m_PointShadowMapSize == normalizedMapSize)
+                {
+                    return true;
+                }
+
+                InvalidateShadowPipelineCaches();
+                DestroyPointShadowResources();
+
+                RenderTargetDesc pointShadowTargetDesc;
+                pointShadowTargetDesc.debugName = std::string(GetDebugName()) + ".PointShadowTarget";
+                pointShadowTargetDesc.width = normalizedMapSize * kPointShadowAtlasColumns;
+                pointShadowTargetDesc.height = normalizedMapSize * kPointShadowAtlasRows;
+                pointShadowTargetDesc.srgb = false;
+                pointShadowTargetDesc.clearColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+                m_PointShadowRenderTarget = m_ResourceManager->CreateRenderTarget(pointShadowTargetDesc);
+                if (m_PointShadowRenderTarget == InvalidResourceHandle)
+                {
+                    DestroyPointShadowResources();
+                    return false;
+                }
+
+                FramebufferDesc pointShadowFramebufferDesc;
+                pointShadowFramebufferDesc.debugName = std::string(GetDebugName()) + ".PointShadowFramebuffer";
+                pointShadowFramebufferDesc.colorTarget = m_PointShadowRenderTarget;
+                m_PointShadowFramebuffer = m_ResourceManager->CreateFramebuffer(pointShadowFramebufferDesc);
+                if (m_PointShadowFramebuffer == InvalidResourceHandle)
+                {
+                    DestroyPointShadowResources();
+                    return false;
+                }
+
+                RenderPassDesc pointShadowPassDesc;
+                pointShadowPassDesc.debugName = std::string(GetDebugName()) + ".PointShadowPass";
+                pointShadowPassDesc.clearColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+                pointShadowPassDesc.framebuffer = m_PointShadowFramebuffer;
+                m_PointShadowRenderPass = m_ResourceManager->CreateRenderPass(pointShadowPassDesc);
+                if (m_PointShadowRenderPass == InvalidResourceHandle)
+                {
+                    DestroyPointShadowResources();
+                    return false;
+                }
+
+                m_PointShadowPipelineState = m_ResourceManager->CreatePipelineState(
+                    BuildShadowPipelineDesc(GetDebugName(), m_PointShadowRenderPass, m_ShadowShaderProgramDesc));
+                if (m_PointShadowPipelineState == InvalidResourceHandle)
+                {
+                    DestroyPointShadowResources();
+                    return false;
+                }
+
+                DescriptorSetDesc pointShadowDescriptorDesc;
+                if (!BuildShadowDescriptorSetDesc(pointShadowDescriptorDesc))
+                {
+                    DestroyPointShadowResources();
+                    return false;
+                }
+
+                m_PointShadowDescriptorSet = m_ResourceManager->CreateDescriptorSet(
+                    m_PointShadowPipelineState,
+                    pointShadowDescriptorDesc,
+                    std::string(GetDebugName()) + ".PointShadow");
+                if (m_PointShadowDescriptorSet == InvalidResourceHandle)
+                {
+                    DestroyPointShadowResources();
+                    return false;
+                }
+
+                m_PointShadowMapSize = normalizedMapSize;
+                return true;
+            }
+
             void UpdateShadowState(const SceneView& sceneView)
             {
                 m_HasDirectionalShadow = false;
+                m_HasPointShadow = false;
                 m_HasSpotShadow = false;
+                m_ShadowedPointLightIndex = -1;
                 m_ShadowedSpotLightIndex = -1;
+                m_PointShadowBias = 0.0025f;
+                m_PointShadowSoftShadows = true;
                 m_DirectionalShadowTextureMatrix = Mat4 {}.elements;
+                for (auto& matrix : m_PointShadowViewProjections)
+                {
+                    matrix = Mat4 {}.elements;
+                }
+                for (auto& matrix : m_PointShadowTextureMatrices)
+                {
+                    matrix = Mat4 {}.elements;
+                }
+                m_PointShadowLightPositionRange = { 0.0f, 0.0f, 0.0f, 1.0f };
                 m_SpotShadowTextureMatrix = Mat4 {}.elements;
 
                 if (m_RenderBackend == nullptr)
@@ -2185,8 +2483,70 @@ namespace Luma
                     const Mat4 lightViewProjection = Multiply(lightProjection, lightView);
                     const Mat4 textureMatrix = Multiply(shadowBias, lightViewProjection);
                     m_DirectionalShadowViewProjection = lightViewProjection.elements;
-                    m_DirectionalShadowTextureMatrix = textureMatrix.elements;
-                    m_HasDirectionalShadow = true;
+                      m_DirectionalShadowTextureMatrix = textureMatrix.elements;
+                      m_HasDirectionalShadow = true;
+                  }
+
+                constexpr std::array<Vec3, LightingSystem::kPointShadowFaceCount> kPointShadowDirections {{
+                    { 1.0f, 0.0f, 0.0f },
+                    { -1.0f, 0.0f, 0.0f },
+                    { 0.0f, 1.0f, 0.0f },
+                    { 0.0f, -1.0f, 0.0f },
+                    { 0.0f, 0.0f, 1.0f },
+                    { 0.0f, 0.0f, -1.0f }
+                }};
+                constexpr std::array<Vec3, LightingSystem::kPointShadowFaceCount> kPointShadowUps {{
+                    { 0.0f, -1.0f, 0.0f },
+                    { 0.0f, -1.0f, 0.0f },
+                    { 0.0f, 0.0f, 1.0f },
+                    { 0.0f, 0.0f, -1.0f },
+                    { 0.0f, -1.0f, 0.0f },
+                    { 0.0f, -1.0f, 0.0f }
+                }};
+                for (std::size_t index = 0; index < sceneView.pointLightCount; ++index)
+                {
+                    const PointLightDesc& pointLight = sceneView.pointLights[index];
+                    if (!pointLight.enabled || !pointLight.castsShadows || pointLight.range <= 0.05f)
+                    {
+                        continue;
+                    }
+
+                    const Vec3 lightPosition { pointLight.position[0], pointLight.position[1], pointLight.position[2] };
+                    const float lightRange = std::max(pointLight.range, 0.1f);
+                    const Mat4 lightProjection =
+                        BuildPerspective(3.14159265359f * 0.5f, 1.0f, 0.05f, lightRange);
+
+                    for (std::size_t faceIndex = 0; faceIndex < LightingSystem::kPointShadowFaceCount; ++faceIndex)
+                    {
+                        const Mat4 lightView = BuildLookAt(
+                            lightPosition,
+                            lightPosition + kPointShadowDirections[faceIndex],
+                            kPointShadowUps[faceIndex]);
+                        const Mat4 lightViewProjection = Multiply(lightProjection, lightView);
+                        const float atlasScaleX = 1.0f / static_cast<float>(kPointShadowAtlasColumns);
+                        const float atlasScaleY = 1.0f / static_cast<float>(kPointShadowAtlasRows);
+                        const float atlasOffsetX =
+                            static_cast<float>(faceIndex % kPointShadowAtlasColumns) * atlasScaleX;
+                        const float atlasOffsetY =
+                            static_cast<float>(faceIndex / kPointShadowAtlasColumns) * atlasScaleY;
+                        const Mat4 atlasTransform =
+                            BuildAtlasTransform(atlasOffsetX, atlasOffsetY, atlasScaleX, atlasScaleY);
+                        const Mat4 textureMatrix = Multiply(atlasTransform, Multiply(shadowBias, lightViewProjection));
+                        m_PointShadowViewProjections[faceIndex] = lightViewProjection.elements;
+                        m_PointShadowTextureMatrices[faceIndex] = textureMatrix.elements;
+                    }
+
+                    m_PointShadowLightPositionRange = {
+                        pointLight.position[0],
+                        pointLight.position[1],
+                        pointLight.position[2],
+                        lightRange
+                    };
+                    m_PointShadowBias = std::max(pointLight.shadowBias, 0.0f);
+                    m_PointShadowSoftShadows = pointLight.softShadows;
+                    m_HasPointShadow = true;
+                    m_ShadowedPointLightIndex = static_cast<int>(index);
+                    break;
                 }
 
                 for (std::size_t index = 0; index < sceneView.spotLightCount; ++index)
@@ -2228,7 +2588,7 @@ namespace Luma
 
                 auto renderSingleShadowPass =
                     [this](const bool enabled,
-                           const bool directionalPass,
+                           const int passKind,
                            const RenderPassHandle renderPass,
                            const std::array<float, 16>& viewProjection)
                 {
@@ -2243,14 +2603,24 @@ namespace Luma
                     m_RenderBackend->BeginRenderPass(renderPass);
                     if (m_Mesh != InvalidResourceHandle)
                     {
-                        const PipelineStateHandle pipeline =
-                            directionalPass
-                                ? defaultShadowResources->directionalPipelineState
-                                : defaultShadowResources->spotPipelineState;
-                        const DescriptorSetHandle descriptorSet =
-                            directionalPass
-                                ? defaultShadowResources->directionalDescriptorSet
-                                : defaultShadowResources->spotDescriptorSet;
+                        PipelineStateHandle pipeline = InvalidResourceHandle;
+                        DescriptorSetHandle descriptorSet = InvalidResourceHandle;
+                        switch (passKind)
+                        {
+                        case 0:
+                            pipeline = defaultShadowResources->directionalPipelineState;
+                            descriptorSet = defaultShadowResources->directionalDescriptorSet;
+                            break;
+                        case 1:
+                            pipeline = defaultShadowResources->pointPipelineState;
+                            descriptorSet = defaultShadowResources->pointDescriptorSet;
+                            break;
+                        case 2:
+                        default:
+                            pipeline = defaultShadowResources->spotPipelineState;
+                            descriptorSet = defaultShadowResources->spotDescriptorSet;
+                            break;
+                        }
                         if (pipeline != InvalidResourceHandle &&
                             descriptorSet != InvalidResourceHandle &&
                             ApplyShadowMaterialBindings(MaterialRenderProxy {}, viewProjection, kIdentityMatrix, descriptorSet))
@@ -2274,14 +2644,24 @@ namespace Luma
                             shadowResources = defaultShadowResources;
                         }
 
-                        const PipelineStateHandle pipeline =
-                            directionalPass
-                                ? shadowResources->directionalPipelineState
-                                : shadowResources->spotPipelineState;
-                        const DescriptorSetHandle descriptorSet =
-                            directionalPass
-                                ? shadowResources->directionalDescriptorSet
-                                : shadowResources->spotDescriptorSet;
+                        PipelineStateHandle pipeline = InvalidResourceHandle;
+                        DescriptorSetHandle descriptorSet = InvalidResourceHandle;
+                        switch (passKind)
+                        {
+                        case 0:
+                            pipeline = shadowResources->directionalPipelineState;
+                            descriptorSet = shadowResources->directionalDescriptorSet;
+                            break;
+                        case 1:
+                            pipeline = shadowResources->pointPipelineState;
+                            descriptorSet = shadowResources->pointDescriptorSet;
+                            break;
+                        case 2:
+                        default:
+                            pipeline = shadowResources->spotPipelineState;
+                            descriptorSet = shadowResources->spotDescriptorSet;
+                            break;
+                        }
                         if (pipeline == InvalidResourceHandle ||
                             descriptorSet == InvalidResourceHandle ||
                             !ApplyShadowMaterialBindings(
@@ -2302,12 +2682,33 @@ namespace Luma
 
                 renderSingleShadowPass(
                     m_HasDirectionalShadow,
-                    true,
+                    0,
                     m_DirectionalShadowRenderPass,
                     m_DirectionalShadowViewProjection);
+                if (m_HasPointShadow)
+                {
+                    for (std::size_t faceIndex = 0; faceIndex < LightingSystem::kPointShadowFaceCount; ++faceIndex)
+                    {
+                        const std::uint32_t viewportX =
+                            static_cast<std::uint32_t>(faceIndex % kPointShadowAtlasColumns) * m_PointShadowMapSize;
+                        const std::uint32_t viewportY =
+                            static_cast<std::uint32_t>(faceIndex / kPointShadowAtlasColumns) * m_PointShadowMapSize;
+                        m_RenderBackend->SetSceneViewportRegion(
+                            viewportX,
+                            viewportY,
+                            m_PointShadowMapSize,
+                            m_PointShadowMapSize);
+                        renderSingleShadowPass(
+                            true,
+                            1,
+                            m_PointShadowRenderPass,
+                            m_PointShadowViewProjections[faceIndex]);
+                    }
+                    m_RenderBackend->ClearSceneViewportRegion();
+                }
                 renderSingleShadowPass(
                     m_HasSpotShadow,
-                    false,
+                    2,
                     m_SpotShadowRenderPass,
                     m_SpotShadowViewProjection);
             }
@@ -2315,6 +2716,7 @@ namespace Luma
             void AppendShadowTextureBindings(DescriptorSetDesc& descriptorSetDesc) const
             {
                 TextureHandle directionalShadowTexture = m_DefaultShadowTexture;
+                TextureHandle pointShadowTexture = m_DefaultShadowTexture;
                 TextureHandle spotShadowTexture = m_DefaultShadowTexture;
                 if (m_RenderBackend != nullptr)
                 {
@@ -2325,6 +2727,15 @@ namespace Luma
                             resolved != InvalidTextureHandle)
                         {
                             directionalShadowTexture = resolved;
+                        }
+                    }
+                    if (m_HasPointShadow)
+                    {
+                        if (const TextureHandle resolved =
+                                m_RenderBackend->GetRenderTargetTextureHandle(m_PointShadowRenderTarget);
+                            resolved != InvalidTextureHandle)
+                        {
+                            pointShadowTexture = resolved;
                         }
                     }
                     if (m_HasSpotShadow)
@@ -2340,10 +2751,12 @@ namespace Luma
 
                 descriptorSetDesc.images.push_back(DescriptorImageWrite { 7, directionalShadowTexture });
                 descriptorSetDesc.images.push_back(DescriptorImageWrite { 8, spotShadowTexture });
+                descriptorSetDesc.images.push_back(DescriptorImageWrite { 15, pointShadowTexture });
             }
 
             bool ApplyMaterialBindings(
                 const MaterialRenderProxy& material,
+                const TextureHandle bakedLightmapTexture,
                 const std::array<float, 16>& worldTransform,
                 const DescriptorSetHandle descriptorSet)
             {
@@ -2403,6 +2816,7 @@ namespace Luma
                 perDrawData.subsurfaceAndCoat[2] = material.subsurfaceColor[2];
                 perDrawData.subsurfaceAndCoat[3] = material.clearCoat;
                 perDrawData.materialParameters3[0] = material.clearCoatRoughness;
+                perDrawData.lightmapParams[0] = bakedLightmapTexture != InvalidTextureHandle ? 1.0f : 0.0f;
 
                 const TextureHandle albedoTexture =
                     ResolveMaterialTexture(material.albedoTexture, true, m_DefaultAlbedoTexture);
@@ -2426,6 +2840,8 @@ namespace Luma
                     ResolveMaterialTexture(material.opacityTexture, false, m_DefaultOpacityTexture);
                 const TextureHandle heightTexture =
                     ResolveMaterialTexture(material.heightTexture, false, m_DefaultHeightTexture);
+                const TextureHandle lightmapTexture =
+                    bakedLightmapTexture == InvalidTextureHandle ? m_DefaultEmissiveTexture : bakedLightmapTexture;
 
                 DescriptorSetDesc updateDesc;
                 updateDesc.buffers.push_back(
@@ -2435,6 +2851,10 @@ namespace Luma
                             reinterpret_cast<const std::uint8_t*>(&perDrawData),
                             reinterpret_cast<const std::uint8_t*>(&perDrawData) + sizeof(PerDrawData))
                     });
+                if (!m_LightingSystem.BuildDescriptorSetDesc(updateDesc))
+                {
+                    return false;
+                }
                 std::size_t textureBindingsHash = 0u;
                 HashCombine(textureBindingsHash, static_cast<std::size_t>(albedoTexture));
                 HashCombine(textureBindingsHash, static_cast<std::size_t>(normalTexture));
@@ -2447,10 +2867,15 @@ namespace Luma
                 HashCombine(textureBindingsHash, static_cast<std::size_t>(emissiveTexture));
                 HashCombine(textureBindingsHash, static_cast<std::size_t>(opacityTexture));
                 HashCombine(textureBindingsHash, static_cast<std::size_t>(heightTexture));
+                HashCombine(textureBindingsHash, static_cast<std::size_t>(lightmapTexture));
                 HashCombine(
                     textureBindingsHash,
                     static_cast<std::size_t>(
                         m_DirectionalShadowRenderTarget == InvalidTextureHandle ? m_DefaultShadowTexture : m_DirectionalShadowRenderTarget));
+                HashCombine(
+                    textureBindingsHash,
+                    static_cast<std::size_t>(
+                        m_PointShadowRenderTarget == InvalidTextureHandle ? m_DefaultShadowTexture : m_PointShadowRenderTarget));
                 HashCombine(
                     textureBindingsHash,
                     static_cast<std::size_t>(
@@ -2473,11 +2898,7 @@ namespace Luma
                     updateDesc.images.push_back(DescriptorImageWrite { 9, emissiveTexture });
                     updateDesc.images.push_back(DescriptorImageWrite { 10, opacityTexture });
                     updateDesc.images.push_back(DescriptorImageWrite { 11, heightTexture });
-
-                    if (!m_LightingSystem.BuildDescriptorSetDesc(updateDesc))
-                    {
-                        return false;
-                    }
+                    updateDesc.images.push_back(DescriptorImageWrite { 16, lightmapTexture });
 
                     AppendShadowTextureBindings(updateDesc);
                     m_LastMaterialTextureBindingHashes[descriptorSet] = textureBindingsHash;
@@ -2612,6 +3033,7 @@ namespace Luma
                 outDesc.images.push_back(DescriptorImageWrite { 9, m_DefaultEmissiveTexture });
                 outDesc.images.push_back(DescriptorImageWrite { 10, m_DefaultOpacityTexture });
                 outDesc.images.push_back(DescriptorImageWrite { 11, m_DefaultHeightTexture });
+                outDesc.images.push_back(DescriptorImageWrite { 16, m_DefaultEmissiveTexture });
                 if (!m_LightingSystem.BuildDescriptorSetDesc(outDesc))
                 {
                     return false;
@@ -2693,6 +3115,11 @@ namespace Luma
                     m_ResourceManager->DestroyDescriptorSet(resources.spotDescriptorSet, GPUResourceManager::DestroyMode::Deferred);
                     resources.spotDescriptorSet = InvalidResourceHandle;
                 }
+                if (resources.pointDescriptorSet != InvalidResourceHandle)
+                {
+                    m_ResourceManager->DestroyDescriptorSet(resources.pointDescriptorSet, GPUResourceManager::DestroyMode::Deferred);
+                    resources.pointDescriptorSet = InvalidResourceHandle;
+                }
                 if (resources.directionalDescriptorSet != InvalidResourceHandle)
                 {
                     m_ResourceManager->DestroyDescriptorSet(resources.directionalDescriptorSet, GPUResourceManager::DestroyMode::Deferred);
@@ -2702,6 +3129,11 @@ namespace Luma
                 {
                     m_ResourceManager->DestroyPipelineState(resources.spotPipelineState, GPUResourceManager::DestroyMode::Deferred);
                     resources.spotPipelineState = InvalidResourceHandle;
+                }
+                if (resources.pointPipelineState != InvalidResourceHandle)
+                {
+                    m_ResourceManager->DestroyPipelineState(resources.pointPipelineState, GPUResourceManager::DestroyMode::Deferred);
+                    resources.pointPipelineState = InvalidResourceHandle;
                 }
                 if (resources.directionalPipelineState != InvalidResourceHandle)
                 {
@@ -2784,6 +3216,7 @@ namespace Luma
             {
                 if (m_ResourceManager == nullptr ||
                     m_DirectionalShadowRenderPass == InvalidResourceHandle ||
+                    m_PointShadowRenderPass == InvalidResourceHandle ||
                     m_SpotShadowRenderPass == InvalidResourceHandle)
                 {
                     return false;
@@ -2794,9 +3227,12 @@ namespace Luma
                 const bool materialTwoSided = (featureFlags & MaterialFeature_TwoSided) != 0u;
                 outResources.directionalPipelineState = m_ResourceManager->CreatePipelineState(
                     BuildShadowPipelineDesc(GetDebugName(), m_DirectionalShadowRenderPass, shaderProgram, materialTwoSided));
+                outResources.pointPipelineState = m_ResourceManager->CreatePipelineState(
+                    BuildShadowPipelineDesc(GetDebugName(), m_PointShadowRenderPass, shaderProgram, materialTwoSided));
                 outResources.spotPipelineState = m_ResourceManager->CreatePipelineState(
                     BuildShadowPipelineDesc(GetDebugName(), m_SpotShadowRenderPass, shaderProgram, materialTwoSided));
                 if (outResources.directionalPipelineState == InvalidResourceHandle ||
+                    outResources.pointPipelineState == InvalidResourceHandle ||
                     outResources.spotPipelineState == InvalidResourceHandle)
                 {
                     DestroyShadowPipelineResources(outResources);
@@ -2814,11 +3250,16 @@ namespace Luma
                     outResources.directionalPipelineState,
                     descriptorSetDesc,
                     std::string(GetDebugName()) + ".ShadowDirectional." + key);
+                outResources.pointDescriptorSet = m_ResourceManager->CreateDescriptorSet(
+                    outResources.pointPipelineState,
+                    descriptorSetDesc,
+                    std::string(GetDebugName()) + ".ShadowPoint." + key);
                 outResources.spotDescriptorSet = m_ResourceManager->CreateDescriptorSet(
                     outResources.spotPipelineState,
                     descriptorSetDesc,
                     std::string(GetDebugName()) + ".ShadowSpot." + key);
                 if (outResources.directionalDescriptorSet == InvalidResourceHandle ||
+                    outResources.pointDescriptorSet == InvalidResourceHandle ||
                     outResources.spotDescriptorSet == InvalidResourceHandle)
                 {
                     DestroyShadowPipelineResources(outResources);
@@ -3099,6 +3540,15 @@ namespace Luma
                 {
                     if (!m_RenderItems.empty() || !m_SharedMeshes.empty())
                     {
+                        for (auto& [_, item] : m_RenderItems)
+                        {
+                            if (item.bakedLightmapTexture != InvalidTextureHandle)
+                            {
+                                m_ResourceManager->DestroyTexture(
+                                    item.bakedLightmapTexture,
+                                    GPUResourceManager::DestroyMode::Deferred);
+                            }
+                        }
                         for (auto& [_, mesh] : m_SharedMeshes)
                         {
                             if (mesh.handle != InvalidResourceHandle)
@@ -3166,12 +3616,49 @@ namespace Luma
                     runtimeItem.material = sourceItem.material;
                     runtimeItem.worldPosition = sourceItem.worldPosition;
                     runtimeItem.worldTransform = sourceItem.worldTransform;
+                    if (sourceItem.bakedLightmap.width > 0 &&
+                        sourceItem.bakedLightmap.height > 0 &&
+                        !sourceItem.bakedLightmap.pixels.empty())
+                    {
+                        TextureDesc lightmapDesc;
+                        lightmapDesc.debugName = std::string(GetDebugName()) + ".Lightmap." + sourceItem.key;
+                        lightmapDesc.width = sourceItem.bakedLightmap.width;
+                        lightmapDesc.height = sourceItem.bakedLightmap.height;
+                        lightmapDesc.format = GpuTextureFormat::RGBA8;
+                        lightmapDesc.srgb = false;
+                        lightmapDesc.pixelData = sourceItem.bakedLightmap.pixels;
+
+                        if (runtimeItem.bakedLightmapTexture == InvalidTextureHandle)
+                        {
+                            runtimeItem.bakedLightmapTexture =
+                                m_ResourceManager->CreateTexture(lightmapDesc, lightmapDesc.debugName);
+                        }
+                        else if (runtimeItem.bakedLightmapRevision != sourceItem.bakedLightmap.revision)
+                        {
+                            m_ResourceManager->UpdateTexture(runtimeItem.bakedLightmapTexture, lightmapDesc);
+                        }
+                        runtimeItem.bakedLightmapRevision = sourceItem.bakedLightmap.revision;
+                    }
+                    else if (runtimeItem.bakedLightmapTexture != InvalidTextureHandle)
+                    {
+                        m_ResourceManager->DestroyTexture(
+                            runtimeItem.bakedLightmapTexture,
+                            GPUResourceManager::DestroyMode::Deferred);
+                        runtimeItem.bakedLightmapTexture = InvalidTextureHandle;
+                        runtimeItem.bakedLightmapRevision = 0;
+                    }
                 }
 
                 for (auto it = m_RenderItems.begin(); it != m_RenderItems.end();)
                 {
                     if (liveKeys.find(it->first) == liveKeys.end())
                     {
+                        if (it->second.bakedLightmapTexture != InvalidTextureHandle)
+                        {
+                            m_ResourceManager->DestroyTexture(
+                                it->second.bakedLightmapTexture,
+                                GPUResourceManager::DestroyMode::Deferred);
+                        }
                         it = m_RenderItems.erase(it);
                         continue;
                     }
@@ -3295,7 +3782,7 @@ namespace Luma
                                 SelectMaterialPipelineState(*defaultMaterialPipelines, static_cast<std::uint32_t>(SceneBlendMode::Opaque));
                             const DescriptorSetHandle descriptorSetHandle =
                                 SelectMaterialDescriptorSet(*defaultMaterialPipelines, static_cast<std::uint32_t>(SceneBlendMode::Opaque));
-                            ApplyMaterialBindings(MaterialRenderProxy {}, kIdentityMatrix, descriptorSetHandle);
+                            ApplyMaterialBindings(MaterialRenderProxy {}, InvalidTextureHandle, kIdentityMatrix, descriptorSetHandle);
                             context.renderer.BindPipeline(pipelineHandle);
                             context.renderer.BindDescriptorSet(descriptorSetHandle);
                             context.renderer.DrawMesh(m_Mesh);
@@ -3314,7 +3801,11 @@ namespace Luma
                                 SelectMaterialDescriptorSet(*pipelineResources, item->material.blendMode);
                             if (pipelineHandle == InvalidResourceHandle ||
                                 descriptorSetHandle == InvalidResourceHandle ||
-                                !ApplyMaterialBindings(item->material, item->worldTransform, descriptorSetHandle))
+                                !ApplyMaterialBindings(
+                                    item->material,
+                                    item->bakedLightmapTexture,
+                                    item->worldTransform,
+                                    descriptorSetHandle))
                             {
                                 continue;
                             }
@@ -3340,7 +3831,11 @@ namespace Luma
                             {
                                 continue;
                             }
-                            if (!ApplyMaterialBindings(item->material, item->worldTransform, descriptorSetHandle))
+                            if (!ApplyMaterialBindings(
+                                    item->material,
+                                    item->bakedLightmapTexture,
+                                    item->worldTransform,
+                                    descriptorSetHandle))
                             {
                                 continue;
                             }
@@ -3406,12 +3901,16 @@ namespace Luma
             FramebufferHandle m_SceneFramebuffer = InvalidResourceHandle;
             RenderPassHandle m_SceneRenderPass = InvalidResourceHandle;
             RenderTargetHandle m_DirectionalShadowRenderTarget = InvalidResourceHandle;
+            RenderTargetHandle m_PointShadowRenderTarget = InvalidResourceHandle;
             RenderTargetHandle m_SpotShadowRenderTarget = InvalidResourceHandle;
             FramebufferHandle m_DirectionalShadowFramebuffer = InvalidResourceHandle;
+            FramebufferHandle m_PointShadowFramebuffer = InvalidResourceHandle;
             FramebufferHandle m_SpotShadowFramebuffer = InvalidResourceHandle;
             RenderPassHandle m_DirectionalShadowRenderPass = InvalidResourceHandle;
+            RenderPassHandle m_PointShadowRenderPass = InvalidResourceHandle;
             RenderPassHandle m_SpotShadowRenderPass = InvalidResourceHandle;
             PipelineStateHandle m_DirectionalShadowPipelineState = InvalidResourceHandle;
+            PipelineStateHandle m_PointShadowPipelineState = InvalidResourceHandle;
             PipelineStateHandle m_SpotShadowPipelineState = InvalidResourceHandle;
             MeshHandle m_PostProcessMesh = InvalidResourceHandle;
             MeshHandle m_GridMesh = InvalidResourceHandle;
@@ -3421,6 +3920,7 @@ namespace Luma
             DescriptorSetHandle m_GridDescriptorSet = InvalidResourceHandle;
             DescriptorSetHandle m_SkyDescriptorSet = InvalidResourceHandle;
             DescriptorSetHandle m_DirectionalShadowDescriptorSet = InvalidResourceHandle;
+            DescriptorSetHandle m_PointShadowDescriptorSet = InvalidResourceHandle;
             DescriptorSetHandle m_SpotShadowDescriptorSet = InvalidResourceHandle;
             IRenderBackend* m_RenderBackend = nullptr;
             GPUResourceManager* m_ResourceManager = nullptr;
@@ -3458,8 +3958,13 @@ namespace Luma
             bool m_HadOverrideMesh = false;
             bool m_HasPrefilteredEnvironment = false;
             bool m_HasDirectionalShadow = false;
+            bool m_HasPointShadow = false;
             bool m_HasSpotShadow = false;
+            int m_ShadowedPointLightIndex = -1;
             int m_ShadowedSpotLightIndex = -1;
+            float m_PointShadowBias = 0.0025f;
+            bool m_PointShadowSoftShadows = true;
+            std::uint32_t m_PointShadowMapSize = kPointShadowMapSize;
             std::uint32_t m_SceneColorTargetWidth = 0;
             std::uint32_t m_SceneColorTargetHeight = 0;
             std::uint32_t m_CurrentEnvironmentSourceWidth = 0;
@@ -3470,6 +3975,7 @@ namespace Luma
                 0.0f, 1.0f, 0.0f, 0.0f,
                 0.0f, 0.0f, 1.0f, 0.0f,
                 0.0f, 0.0f, 0.0f, 1.0f };
+            std::array<std::array<float, 16>, LightingSystem::kPointShadowFaceCount> m_PointShadowViewProjections {};
             std::array<float, 16> m_SpotShadowViewProjection {
                 1.0f, 0.0f, 0.0f, 0.0f,
                 0.0f, 1.0f, 0.0f, 0.0f,
@@ -3480,6 +3986,8 @@ namespace Luma
                 0.0f, 1.0f, 0.0f, 0.0f,
                 0.0f, 0.0f, 1.0f, 0.0f,
                 0.0f, 0.0f, 0.0f, 1.0f };
+            std::array<std::array<float, 16>, LightingSystem::kPointShadowFaceCount> m_PointShadowTextureMatrices {};
+            std::array<float, 4> m_PointShadowLightPositionRange { 0.0f, 0.0f, 0.0f, 1.0f };
             std::array<float, 16> m_SpotShadowTextureMatrix {
                 1.0f, 0.0f, 0.0f, 0.0f,
                 0.0f, 1.0f, 0.0f, 0.0f,
@@ -3502,6 +4010,7 @@ namespace Luma
                 0.0f, 0.0f, 0.0f, 1.0f
             };
             std::array<float, 3> m_CameraWorldPosition { 0.0f, 0.0f, 5.0f };
+            Color m_SceneClearColor = { 0.05f, 0.07f, 0.12f, 1.0f };
             float m_CurrentAutoExposureEV = 0.0f;
             float m_LastAutoExposureTimeSeconds = 0.0f;
             bool m_AutoExposureInitialized = false;

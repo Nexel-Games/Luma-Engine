@@ -18,6 +18,7 @@
 #include "Luma/Scene/IDComponent.h"
 #include "Luma/Scene/JointComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
+#include "Luma/Scene/PointLightComponent.h"
 #include "Luma/Scene/PhysicsEventsComponent.h"
 #include "Luma/Scene/RagdollComponent.h"
 #include "Luma/Scene/RelationshipComponent.h"
@@ -220,22 +221,32 @@ namespace Luma::Editor
         auto& registry = context.scene->GetRegistry();
 
         float fovDegrees = 60.0f;
-        if (context.lensSourceEntity != entt::null &&
-            registry.valid(context.lensSourceEntity) &&
-            registry.all_of<CameraComponent>(context.lensSourceEntity))
-        {
-            const auto& camera = registry.get<CameraComponent>(context.lensSourceEntity);
-            fovDegrees = std::clamp(camera.fovDegrees, 10.0f, 170.0f);
-        }
-
-        constexpr float kPi = 3.14159265359f;
-        const float yawRadians = context.editorCamera->yaw * (kPi / 180.0f);
-        const float pitchRadians = context.editorCamera->pitch * (kPi / 180.0f);
-        const Vec3 eye {
+        float nearPlane = 0.1f;
+        float farPlane = 2000.0f;
+        Vec3 eye {
             context.editorCamera->position[0],
             context.editorCamera->position[1],
             context.editorCamera->position[2]
         };
+        float yawDegrees = context.editorCamera->yaw;
+        float pitchDegrees = context.editorCamera->pitch;
+        if (context.lensSourceEntity != entt::null &&
+            registry.valid(context.lensSourceEntity) &&
+            registry.all_of<TransformComponent, CameraComponent>(context.lensSourceEntity))
+        {
+            const auto& camera = registry.get<CameraComponent>(context.lensSourceEntity);
+            const auto& transform = registry.get<TransformComponent>(context.lensSourceEntity);
+            fovDegrees = std::clamp(camera.fovDegrees, 10.0f, 170.0f);
+            nearPlane = std::max(camera.nearClip, 0.001f);
+            farPlane = std::max(camera.farClip, nearPlane + 0.1f);
+            eye = { transform.worldPosition[0], transform.worldPosition[1], transform.worldPosition[2] };
+            pitchDegrees = transform.worldRotation[0];
+            yawDegrees = transform.worldRotation[1];
+        }
+
+        constexpr float kPi = 3.14159265359f;
+        const float yawRadians = yawDegrees * (kPi / 180.0f);
+        const float pitchRadians = pitchDegrees * (kPi / 180.0f);
         const Vec3 forward = Normalize({
             std::cos(yawRadians) * std::cos(pitchRadians),
             std::sin(pitchRadians),
@@ -244,7 +255,7 @@ namespace Luma::Editor
         const Mat4 view = BuildLookAt(eye, eye + forward, Vec3 { 0.0f, 1.0f, 0.0f });
         const float aspectRatio = std::max(context.renderAreaSize.x, 1.0f) / std::max(context.renderAreaSize.y, 1.0f);
         const float fovRadians = fovDegrees * (kPi / 180.0f);
-        const Mat4 projection = BuildPerspective(fovRadians, aspectRatio, 0.1f, 2000.0f);
+        const Mat4 projection = BuildPerspective(fovRadians, aspectRatio, nearPlane, farPlane);
         const Mat4 viewProjection = Multiply(projection, view);
 
         auto projectWorldToScreen = [&](const Vec3& worldPosition, ImVec2& screenPosition) -> bool
@@ -322,6 +333,28 @@ namespace Luma::Editor
             drawSegment(center + Vec3 { radius, 0.0f, 0.0f }, center - Vec3 { radius, 0.0f, 0.0f }, color, thickness);
             drawSegment(center + Vec3 { 0.0f, radius, 0.0f }, center - Vec3 { 0.0f, radius, 0.0f }, color, thickness);
             drawSegment(center + Vec3 { 0.0f, 0.0f, radius }, center - Vec3 { 0.0f, 0.0f, radius }, color, thickness);
+        };
+
+        auto drawBillboardIcon = [&](const Vec3& worldPosition, void* texture, const float size, const ImU32 fallbackColor)
+        {
+            ImVec2 screenPosition {};
+            if (!projectWorldToScreen(worldPosition, screenPosition))
+            {
+                return;
+            }
+
+            const ImVec2 halfSize(size * 0.5f, size * 0.5f);
+            if (texture != nullptr)
+            {
+                context.drawList->AddImage(
+                    reinterpret_cast<ImTextureID>(texture),
+                    ImVec2(screenPosition.x - halfSize.x, screenPosition.y - halfSize.y),
+                    ImVec2(screenPosition.x + halfSize.x, screenPosition.y + halfSize.y));
+            }
+            else
+            {
+                context.drawList->AddCircleFilled(screenPosition, halfSize.x, fallbackColor, 16);
+            }
         };
 
         auto worldPositionOf = [](const TransformComponent& transform) -> Vec3
@@ -442,6 +475,13 @@ namespace Luma::Editor
             drawWireCircle(center - axisZ * majorRadius, axisY, axisZ, minorRadius, color);
         };
 
+        auto clampFrustumPreviewDistance = [](const float nearPlane, const float farPlane)
+        {
+            const float minPreview = std::max(nearPlane + 0.2f, 1.25f);
+            const float maxPreview = std::max(minPreview, 3.5f);
+            return std::clamp(farPlane, minPreview, maxPreview);
+        };
+
         auto colorForJointMotion = [&](const JointMotionMode mode, const bool selected) -> ImU32
         {
             switch (mode)
@@ -482,6 +522,161 @@ namespace Luma::Editor
             }
             return found->second;
         };
+
+        const auto cameraView = registry.view<TransformComponent, CameraComponent>();
+        for (const EntityID entity : cameraView)
+        {
+            const auto& transform = cameraView.get<TransformComponent>(entity);
+            const auto& camera = cameraView.get<CameraComponent>(entity);
+            if (!camera.active)
+            {
+                continue;
+            }
+
+            const bool selected = isSelected(entity);
+            const bool isLensSource = entity == context.lensSourceEntity;
+            if (!selected && !isLensSource)
+            {
+                continue;
+            }
+
+            constexpr float kPi = 3.14159265359f;
+            const float yawRadians = transform.worldRotation[1] * (kPi / 180.0f);
+            const float pitchRadians = transform.worldRotation[0] * (kPi / 180.0f);
+            const Vec3 forward = Normalize({
+                std::cos(yawRadians) * std::cos(pitchRadians),
+                std::sin(pitchRadians),
+                std::sin(yawRadians) * std::cos(pitchRadians)
+            });
+            Vec3 up = { 0.0f, 1.0f, 0.0f };
+            Vec3 right = Normalize(Cross(forward, up));
+            if (Dot(forward, forward) <= 1.0e-6f)
+            {
+                continue;
+            }
+            if (Dot(right, right) <= 1.0e-6f)
+            {
+                right = { 1.0f, 0.0f, 0.0f };
+            }
+            up = Normalize(Cross(right, forward));
+
+            const Vec3 origin = worldPositionOf(transform) + forward * 0.18f;
+            const ImU32 color = selected || isLensSource
+                ? IM_COL32(255, 214, 92, 255)
+                : IM_COL32(255, 196, 92, 170);
+            const float thickness = selected || isLensSource ? 1.9f : 1.3f;
+            const float nearPlane = std::max(camera.nearClip, 0.001f);
+            const float farPlane = std::max(camera.farClip, nearPlane + 0.1f);
+            const float previewFarPlane = clampFrustumPreviewDistance(nearPlane, farPlane);
+            const float aspectRatio = camera.useViewportAspectRatio
+                ? (std::max(context.renderAreaSize.x, 1.0f) / std::max(context.renderAreaSize.y, 1.0f))
+                : std::max(camera.aspectRatio, 0.001f);
+
+            auto drawQuad = [&](const std::array<Vec3, 4>& quad)
+            {
+                drawSegment(quad[0], quad[1], color, thickness);
+                drawSegment(quad[1], quad[2], color, thickness);
+                drawSegment(quad[2], quad[3], color, thickness);
+                drawSegment(quad[3], quad[0], color, thickness);
+            };
+
+            if (camera.projection == CameraProjectionMode::Orthographic)
+            {
+                const float halfHeight = std::max(camera.orthographicSize, 0.01f);
+                const float halfWidth = halfHeight * aspectRatio;
+                const Vec3 nearCenter = origin + forward * nearPlane;
+                const Vec3 farCenter = origin + forward * previewFarPlane;
+
+                const std::array<Vec3, 4> nearCorners = {
+                    nearCenter + up * halfHeight - right * halfWidth,
+                    nearCenter + up * halfHeight + right * halfWidth,
+                    nearCenter - up * halfHeight + right * halfWidth,
+                    nearCenter - up * halfHeight - right * halfWidth
+                };
+                const std::array<Vec3, 4> farCorners = {
+                    farCenter + up * halfHeight - right * halfWidth,
+                    farCenter + up * halfHeight + right * halfWidth,
+                    farCenter - up * halfHeight + right * halfWidth,
+                    farCenter - up * halfHeight - right * halfWidth
+                };
+
+                drawQuad(nearCorners);
+                drawQuad(farCorners);
+                for (std::size_t index = 0; index < nearCorners.size(); ++index)
+                {
+                    drawSegment(nearCorners[index], farCorners[index], color, thickness);
+                }
+            }
+            else
+            {
+                const float fovRadians = std::clamp(camera.fovDegrees, 10.0f, 170.0f) * (kPi / 180.0f);
+                const float tanHalfFov = std::tan(fovRadians * 0.5f);
+                if (!std::isfinite(tanHalfFov) || tanHalfFov <= 0.0f)
+                {
+                    continue;
+                }
+
+                const float nearHalfHeight = tanHalfFov * nearPlane;
+                const float nearHalfWidth = nearHalfHeight * aspectRatio;
+                const float farHalfHeight = tanHalfFov * previewFarPlane;
+                const float farHalfWidth = farHalfHeight * aspectRatio;
+
+                const Vec3 nearCenter = origin + forward * nearPlane;
+                const Vec3 farCenter = origin + forward * previewFarPlane;
+
+                const std::array<Vec3, 4> nearCorners = {
+                    nearCenter + up * nearHalfHeight - right * nearHalfWidth,
+                    nearCenter + up * nearHalfHeight + right * nearHalfWidth,
+                    nearCenter - up * nearHalfHeight + right * nearHalfWidth,
+                    nearCenter - up * nearHalfHeight - right * nearHalfWidth
+                };
+                const std::array<Vec3, 4> farCorners = {
+                    farCenter + up * farHalfHeight - right * farHalfWidth,
+                    farCenter + up * farHalfHeight + right * farHalfWidth,
+                    farCenter - up * farHalfHeight + right * farHalfWidth,
+                    farCenter - up * farHalfHeight - right * farHalfWidth
+                };
+
+                for (const Vec3& corner : farCorners)
+                {
+                    drawSegment(origin, corner, color, thickness);
+                }
+                drawQuad(nearCorners);
+                drawQuad(farCorners);
+                for (std::size_t index = 0; index < nearCorners.size(); ++index)
+                {
+                    drawSegment(nearCorners[index], farCorners[index], color, thickness);
+                }
+            }
+        }
+
+        const auto pointLightView = registry.view<TransformComponent, PointLightComponent>();
+        for (const EntityID entity : pointLightView)
+        {
+            const auto& transform = pointLightView.get<TransformComponent>(entity);
+            const auto& pointLight = pointLightView.get<PointLightComponent>(entity);
+            if (!pointLight.active)
+            {
+                continue;
+            }
+
+            const bool selected = isSelected(entity);
+            const Vec3 center = worldPositionOf(transform);
+            const ImU32 color = selected ? IM_COL32(255, 226, 138, 255) : IM_COL32(255, 210, 112, 220);
+            const float iconSize = selected ? 22.0f : 18.0f;
+            drawBillboardIcon(center, context.pointLightIconTexture, iconSize, color);
+            drawCross(center, selected ? 0.16f : 0.11f, color, selected ? 1.8f : 1.3f);
+
+            if (!selected)
+            {
+                continue;
+            }
+
+            const float radius = std::max(pointLight.range, 0.05f);
+            drawWireCircle(center, Vec3 { 1.0f, 0.0f, 0.0f }, Vec3 { 0.0f, 1.0f, 0.0f }, radius, color);
+            drawWireCircle(center, Vec3 { 1.0f, 0.0f, 0.0f }, Vec3 { 0.0f, 0.0f, 1.0f }, radius, color);
+            drawWireCircle(center, Vec3 { 0.0f, 1.0f, 0.0f }, Vec3 { 0.0f, 0.0f, 1.0f }, radius, color);
+        }
 
         const auto colliderView = registry.view<TransformComponent, ColliderComponent>();
         for (const EntityID entity : colliderView)

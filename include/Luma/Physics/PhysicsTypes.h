@@ -27,6 +27,23 @@ namespace Luma
         Cylinder
     };
 
+    enum class PhysicsEventType : std::uint8_t
+    {
+        CollisionEnter = 0,
+        CollisionStay,
+        CollisionExit,
+        TriggerEnter,
+        TriggerStay,
+        TriggerExit
+    };
+
+    struct PhysicsEvent
+    {
+        std::uint32_t entityA = 0;
+        std::uint32_t entityB = 0;
+        PhysicsEventType type = PhysicsEventType::CollisionEnter;
+    };
+
     struct PhysicsMaterialDesc
     {
         float staticFriction = 0.60f;

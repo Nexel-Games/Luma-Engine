@@ -93,7 +93,7 @@ This keeps project assets portable and compatible with the existing mesh resolut
 
 ## Notes
 
-- This creates a scene instance immediately. It does not create a serialized prefab asset file yet.
+- This creates a scene instance immediately. If you want a reusable prefab asset, use `Create Prefab` from the selected entity hierarchy after placement.
 - `.obj` and `.fbx` work directly because the mesh loading path still supports raw mesh decode.
 - Cooked `.lumamesh` assets are preferred automatically when they already exist and will use the streaming mesh manifest + chunk path.
 - Viewport drops are intended for quick scene placement.
@@ -106,10 +106,15 @@ This keeps project assets portable and compatible with the existing mesh resolut
 3. If you want it under another scene node, drag the mesh onto that node in `Hierarchy` instead.
 4. Adjust transform, material, and streaming settings from `Inspector` after creation.
 
-## Current Limitation
+## Prefab Follow-up
 
-This workflow creates a prefab-style scene entity instance, not a reusable prefab asset on disk. If you want true prefab asset authoring next, the next step is:
+This workflow still starts as a direct scene placement step, not an automatic prefab creation step.
 
-- add prefab asset serialization
-- add `Create Prefab From Selection`
-- add prefab instance/update workflows
+If you want the dropped mesh hierarchy to become a reusable prefab asset:
+
+1. select the root entity in `Hierarchy`
+2. use `Create Prefab`
+3. save the resulting `.lumaprefab`
+4. instantiate that prefab later from the `Content Browser`
+
+Luma now supports prefab asset creation, instantiation, apply, revert, status, and override inspection after that conversion step.

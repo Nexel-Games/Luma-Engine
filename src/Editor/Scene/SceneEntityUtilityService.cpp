@@ -17,7 +17,7 @@ namespace Luma::Editor
 
         for (const EntityID entity : view)
         {
-            existingNames.insert(view.get<TagComponent>(entity).tag);
+            existingNames.insert(view.get<TagComponent>(entity).name);
         }
 
         const std::string base(baseName);

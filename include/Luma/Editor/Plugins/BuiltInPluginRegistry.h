@@ -27,6 +27,7 @@ namespace Luma::Editor
     };
 
     const std::vector<BuiltInPluginDescriptor>& GetBuiltInPlugins();
+    bool HasBuiltInPlugins();
     const BuiltInPluginDescriptor* FindBuiltInPlugin(std::string_view id);
     bool IsBuiltInPluginEnabled(const Project::ProjectConfig& config, std::string_view pluginId);
     bool SetBuiltInPluginEnabled(Project::ProjectConfig& config, const std::string& pluginId, bool enabled);

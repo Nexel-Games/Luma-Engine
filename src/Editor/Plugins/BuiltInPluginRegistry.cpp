@@ -14,6 +14,11 @@ namespace Luma::Editor
         return kBuiltInPlugins;
     }
 
+    bool HasBuiltInPlugins()
+    {
+        return !kBuiltInPlugins.empty();
+    }
+
     const BuiltInPluginDescriptor* FindBuiltInPlugin(const std::string_view id)
     {
         const auto it = std::find_if(

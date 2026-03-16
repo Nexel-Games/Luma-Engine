@@ -25,3 +25,15 @@ UnrealEngine/
 *.pch
 .vs/
 CMakeUserPresets.json
+!thirdparty/Blast/lib/
+!thirdparty/Blast/lib/vs18win64-runtime/
+!thirdparty/Blast/lib/vs18win64-runtime/debug/
+!thirdparty/Blast/lib/vs18win64-runtime/release/
+!thirdparty/Blast/lib/vs18win64-runtime/debug/*.lib
+!thirdparty/Blast/lib/vs18win64-runtime/release/*.lib
+!thirdparty/Blast/bin/
+!thirdparty/Blast/bin/vs18win64-runtime/
+!thirdparty/Blast/bin/vs18win64-runtime/debug/
+!thirdparty/Blast/bin/vs18win64-runtime/release/
+!thirdparty/Blast/bin/vs18win64-runtime/debug/*.dll
+!thirdparty/Blast/bin/vs18win64-runtime/release/*.dll

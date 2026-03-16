@@ -101,6 +101,38 @@ namespace Luma::Editor
         return context.sceneDocument->CaptureSnapshot(*context.scene, outSnapshot, outError);
     }
 
+    bool SceneDocumentHostService::RestoreSceneSnapshot(
+        SceneDocumentHostContext& context,
+        const std::string_view snapshot) const
+    {
+        if (context.scene == nullptr || context.sceneDocument == nullptr || context.contentStatus == nullptr)
+        {
+            return false;
+        }
+
+        const SceneDocument::Callbacks callbacks {
+            {},
+            [&context]()
+            {
+                if (context.afterLoad)
+                {
+                    context.afterLoad();
+                }
+            },
+            {},
+            {},
+            {}
+        };
+
+        const bool restored =
+            context.sceneDocument->RestoreSnapshot(*context.scene, snapshot, *context.contentStatus, callbacks);
+        if (restored)
+        {
+            RefreshWindowTitle(context);
+        }
+        return restored;
+    }
+
     bool SceneDocumentHostService::IsSceneDirty(SceneDocumentHostContext& context) const
     {
         UpdateSceneDirtyState(context);

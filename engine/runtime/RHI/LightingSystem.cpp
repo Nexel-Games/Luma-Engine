@@ -27,6 +27,13 @@ namespace Luma
         m_DirectionalShadowEnabled = false;
         m_DirectionalShadowBias = 0.0015f;
         m_DirectionalShadowTexelSize = 1.0f / 1024.0f;
+        m_PointShadowEnabled = false;
+        m_PointShadowBias = 0.0025f;
+        m_PointShadowSoftShadows = true;
+        m_PointShadowLightIndex = -1.0f;
+        m_PointShadowLightPositionRange = { 0.0f, 0.0f, 0.0f, 1.0f };
+        m_PointShadowAtlasInvWidth = 1.0f / 1536.0f;
+        m_PointShadowAtlasInvHeight = 1.0f / 1024.0f;
         m_SpotShadowEnabled = false;
         m_SpotShadowBias = 0.0010f;
         m_SpotShadowTexelSize = 1.0f / 1024.0f;
@@ -50,6 +57,9 @@ namespace Luma
         m_SpotLights.fill(SpotLightDesc {});
         m_SpotLightCount = 0;
         m_DirectionalShadowEnabled = false;
+        m_PointShadowEnabled = false;
+        m_PointShadowSoftShadows = true;
+        m_PointShadowLightIndex = -1.0f;
         m_SpotShadowEnabled = false;
         m_SpotShadowLightIndex = -1.0f;
         m_ImageBasedLight = ImageBasedLightDesc {};
@@ -102,6 +112,11 @@ namespace Luma
             };
             m_PointLights[index].intensity = ClampToNonNegative(lights[index].intensity);
             m_PointLights[index].range = std::max(lights[index].range, 0.001f);
+            m_PointLights[index].attenuation = std::max(lights[index].attenuation, 0.001f);
+            m_PointLights[index].castsShadows = lights[index].castsShadows;
+            m_PointLights[index].softShadows = lights[index].softShadows;
+            m_PointLights[index].shadowBias = std::max(lights[index].shadowBias, 0.0f);
+            m_PointLights[index].shadowResolution = lights[index].shadowResolution;
         }
     }
 
@@ -145,6 +160,26 @@ namespace Luma
         m_DirectionalShadowEnabled = enabled;
         m_DirectionalShadowBias = std::max(bias, 0.0f);
         m_DirectionalShadowTexelSize = std::max(texelSize, 1.0e-6f);
+    }
+
+    void LightingSystem::SetPointShadow(
+        const std::array<std::array<float, 16>, kPointShadowFaceCount>& matrices,
+        const std::array<float, 4>& lightPositionRange,
+        const bool enabled,
+        const float bias,
+        const bool softShadows,
+        const float lightIndex,
+        const float atlasInvWidth,
+        const float atlasInvHeight)
+    {
+        m_PointShadowMatrices = matrices;
+        m_PointShadowLightPositionRange = lightPositionRange;
+        m_PointShadowEnabled = enabled;
+        m_PointShadowBias = std::max(bias, 0.0f);
+        m_PointShadowSoftShadows = softShadows;
+        m_PointShadowLightIndex = lightIndex;
+        m_PointShadowAtlasInvWidth = std::max(atlasInvWidth, 1.0e-6f);
+        m_PointShadowAtlasInvHeight = std::max(atlasInvHeight, 1.0e-6f);
     }
 
     void LightingSystem::SetSpotShadow(
@@ -396,7 +431,8 @@ namespace Luma
                 light.enabled ? light.color[1] * light.intensity : 0.0f;
             uniformData.pointColorIntensity[index][2] =
                 light.enabled ? light.color[2] * light.intensity : 0.0f;
-            uniformData.pointColorIntensity[index][3] = light.enabled ? 1.0f : 0.0f;
+            uniformData.pointColorIntensity[index][3] =
+                light.enabled ? std::max(light.attenuation, 0.001f) : 0.0f;
         }
 
         constexpr float kPi = 3.14159265359f;
@@ -429,6 +465,10 @@ namespace Luma
             m_DirectionalShadowMatrix.data(),
             sizeof(uniformData.directionalShadowMatrix));
         std::memcpy(
+            uniformData.pointShadowMatrices,
+            m_PointShadowMatrices.data(),
+            sizeof(uniformData.pointShadowMatrices));
+        std::memcpy(
             uniformData.spotShadowMatrix,
             m_SpotShadowMatrix.data(),
             sizeof(uniformData.spotShadowMatrix));
@@ -437,6 +477,21 @@ namespace Luma
         uniformData.directionalShadowParams[1] = m_DirectionalShadowBias;
         uniformData.directionalShadowParams[2] = m_DirectionalShadowTexelSize;
         uniformData.directionalShadowParams[3] = 0.0f;
+
+        uniformData.pointShadowParams[0] = m_PointShadowEnabled ? 1.0f : 0.0f;
+        uniformData.pointShadowParams[1] = m_PointShadowBias;
+        uniformData.pointShadowParams[2] = m_PointShadowLightIndex;
+        uniformData.pointShadowParams[3] = m_PointShadowSoftShadows ? 1.0f : 0.0f;
+
+        uniformData.pointShadowLightPositionRange[0] = m_PointShadowLightPositionRange[0];
+        uniformData.pointShadowLightPositionRange[1] = m_PointShadowLightPositionRange[1];
+        uniformData.pointShadowLightPositionRange[2] = m_PointShadowLightPositionRange[2];
+        uniformData.pointShadowLightPositionRange[3] = m_PointShadowLightPositionRange[3];
+
+        uniformData.pointShadowAtlasInvSize[0] = m_PointShadowAtlasInvWidth;
+        uniformData.pointShadowAtlasInvSize[1] = m_PointShadowAtlasInvHeight;
+        uniformData.pointShadowAtlasInvSize[2] = 0.0f;
+        uniformData.pointShadowAtlasInvSize[3] = 0.0f;
 
         uniformData.spotShadowParams[0] = m_SpotShadowEnabled ? 1.0f : 0.0f;
         uniformData.spotShadowParams[1] = m_SpotShadowBias;

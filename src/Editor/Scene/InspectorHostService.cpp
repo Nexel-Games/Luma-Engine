@@ -23,6 +23,8 @@ namespace Luma::Editor
             context.scene,
             context.selectedContentEntry,
             context.selectedEntity,
+            context.luaScriptRuntime,
+            context.playModeActive,
             context.physicsBackendName,
             context.physicsSimulationEnabled,
             context.contentRoots,
@@ -30,7 +32,10 @@ namespace Luma::Editor
             context.materialTextureAssetPickerPanel,
             context.entityPanel,
             context.meshRendererPanel,
+            context.audioPanel,
             context.cameraLightingPanel,
+            context.scriptPanel,
+            context.destructionPanel,
             context.physicsPanel,
             context.jointPanel,
             context.advancedPhysicsPanel,
@@ -40,10 +45,20 @@ namespace Luma::Editor
             context.environmentEffectsPanel,
             context.materialPanel,
             context.addComponentPanel,
+            context.availableTags,
+            context.availableLayers,
             [this, contentRoots = context.contentRoots]()
             {
                 return ListContentRootPaths(contentRoots);
             },
+            context.createPrefabFromEntity,
+            context.applyPrefabInstance,
+            context.revertPrefabInstance,
+            context.getPrefabInstanceStatus,
+            context.getPrefabOverridePaths,
+            context.revertPrefabComponent,
+            context.revertPrefabOverridePath,
+            context.selectPrefabAsset,
             context.ensurePrimitiveCollider,
             context.markSceneRenderCacheDirty,
             context.markSceneMaterialsDirty,
@@ -60,7 +75,8 @@ namespace Luma::Editor
             },
             context.initializeSkyLightDefaults,
             context.initializePostProcessDefaults,
-            context.isSelectionValid
+            context.isSelectionValid,
+            context.setContentStatus
         });
     }
 

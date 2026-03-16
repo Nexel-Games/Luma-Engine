@@ -17,13 +17,16 @@ namespace Luma
     struct MeshRendererComponent;
     struct PostProcessComponent;
     struct SkyLightComponent;
+    class LuaScriptRuntime;
 }
 
 namespace Luma::Editor
 {
     class InspectorAddComponentPanel;
     class InspectorAdvancedPhysicsPanel;
+    class InspectorAudioPanel;
     class InspectorCameraLightingPanel;
+    class InspectorDestructionPanel;
     class InspectorEntityPanel;
     class InspectorEnvironmentEffectsPanel;
     class InspectorFieldBuoyancyPanel;
@@ -32,6 +35,7 @@ namespace Luma::Editor
     class InspectorMeshRendererPanel;
     class InspectorPhysicsEventsPanel;
     class InspectorPhysicsPanel;
+    class InspectorScriptPanel;
     class InspectorVehiclePhysicsPanel;
     class MaterialTextureAssetPickerPanel;
     class MaterialTextureAssetPickerService;
@@ -42,17 +46,24 @@ namespace Luma::Editor
         Scene* scene = nullptr;
         const std::filesystem::path* selectedContentEntry = nullptr;
         EntityID selectedEntity = entt::null;
+        ::Luma::LuaScriptRuntime* luaScriptRuntime = nullptr;
+        bool playModeActive = false;
         std::string_view physicsBackendName;
         bool* physicsSimulationEnabled = nullptr;
         const std::vector<ContentBrowserRootState>* contentRoots = nullptr;
         const std::unordered_map<std::string, MeshStreamingImportedScenePartsState>* importedSceneParts = nullptr;
+        const std::vector<std::string>* availableTags = nullptr;
+        const std::vector<std::string>* availableLayers = nullptr;
         MaterialTextureAssetPickerService* materialTextureAssetPickerService = nullptr;
         MaterialTextureAssetPickerPanel* materialTextureAssetPickerPanel = nullptr;
         InspectorPanel* panel = nullptr;
         InspectorEntityPanel* entityPanel = nullptr;
         InspectorMeshRendererPanel* meshRendererPanel = nullptr;
+        InspectorAudioPanel* audioPanel = nullptr;
         InspectorCameraLightingPanel* cameraLightingPanel = nullptr;
+        InspectorScriptPanel* scriptPanel = nullptr;
         InspectorPhysicsPanel* physicsPanel = nullptr;
+        InspectorDestructionPanel* destructionPanel = nullptr;
         InspectorJointPanel* jointPanel = nullptr;
         InspectorAdvancedPhysicsPanel* advancedPhysicsPanel = nullptr;
         InspectorVehiclePhysicsPanel* vehiclePhysicsPanel = nullptr;
@@ -61,6 +72,14 @@ namespace Luma::Editor
         InspectorEnvironmentEffectsPanel* environmentEffectsPanel = nullptr;
         InspectorMaterialPanel* materialPanel = nullptr;
         InspectorAddComponentPanel* addComponentPanel = nullptr;
+        std::function<bool(EntityID)> createPrefabFromEntity;
+        std::function<bool(EntityID)> applyPrefabInstance;
+        std::function<bool(EntityID)> revertPrefabInstance;
+        std::function<std::string(EntityID)> getPrefabInstanceStatus;
+        std::function<std::vector<std::string>(EntityID)> getPrefabOverridePaths;
+        std::function<bool(EntityID, std::string_view)> revertPrefabComponent;
+        std::function<bool(EntityID, std::string_view)> revertPrefabOverridePath;
+        std::function<void(EntityID)> selectPrefabAsset;
         std::function<void(EntityID, PrimitiveType)> ensurePrimitiveCollider;
         std::function<void()> markSceneRenderCacheDirty;
         std::function<void()> markSceneMaterialsDirty;
@@ -74,6 +93,7 @@ namespace Luma::Editor
         std::function<void(SkyLightComponent&)> initializeSkyLightDefaults;
         std::function<void(PostProcessComponent&)> initializePostProcessDefaults;
         std::function<bool()> isSelectionValid;
+        std::function<void(std::string)> setContentStatus;
     };
 
     class InspectorHostService

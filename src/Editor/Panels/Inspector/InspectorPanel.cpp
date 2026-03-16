@@ -4,7 +4,9 @@
 
 #include "Luma/Editor/Panels/Inspector/InspectorAddComponentPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorAdvancedPhysicsPanel.h"
+#include "Luma/Editor/Panels/Inspector/InspectorAudioPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorCameraLightingPanel.h"
+#include "Luma/Editor/Panels/Inspector/InspectorDestructionPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorEntityPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorEnvironmentEffectsPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorFieldBuoyancyPanel.h"
@@ -13,6 +15,7 @@
 #include "Luma/Editor/Panels/Inspector/InspectorMeshRendererPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorPhysicsEventsPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorPhysicsPanel.h"
+#include "Luma/Editor/Panels/Inspector/InspectorScriptPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorVehiclePhysicsPanel.h"
 #include "Luma/Scene/IDComponent.h"
 #include "Luma/Scene/MaterialComponent.h"
@@ -67,7 +70,18 @@ namespace Luma::Editor
                 context.scene,
                 context.selectedEntity,
                 context.physicsBackendName,
-                context.physicsSimulationEnabled
+                context.physicsSimulationEnabled,
+                context.availableTags,
+                context.availableLayers,
+                context.markSceneRenderCacheDirty,
+                context.createPrefabFromEntity,
+                context.applyPrefabInstance,
+                context.revertPrefabInstance,
+                context.getPrefabInstanceStatus,
+                context.getPrefabOverridePaths,
+                context.revertPrefabComponent,
+                context.revertPrefabOverridePath,
+                context.selectPrefabAsset
             });
         }
 
@@ -78,8 +92,20 @@ namespace Luma::Editor
                 context.selectedEntity,
                 context.listContentRootPaths,
                 context.ensurePrimitiveCollider,
+                context.markSceneRenderCacheDirty,
                 context.markSceneGeometryDirty,
                 context.markSceneMaterialsDirty
+            });
+        }
+
+        if (context.audioPanel != nullptr)
+        {
+            context.audioPanel->Draw({
+                context.scene,
+                context.selectedEntity,
+                context.selectedContentEntry,
+                context.playModeActive,
+                context.setContentStatus
             });
         }
 
@@ -87,13 +113,35 @@ namespace Luma::Editor
         {
             context.cameraLightingPanel->Draw({
                 context.scene,
-                context.selectedEntity
+                context.selectedEntity,
+                context.markSceneRenderCacheDirty,
+                context.setContentStatus
+            });
+        }
+
+        if (context.scriptPanel != nullptr)
+        {
+            context.scriptPanel->Draw({
+                context.scene,
+                context.selectedEntity,
+                context.selectedContentEntry,
+                context.luaScriptRuntime,
+                context.playModeActive,
+                context.setContentStatus
             });
         }
 
         if (context.physicsPanel != nullptr)
         {
             context.physicsPanel->Draw({
+                context.scene,
+                context.selectedEntity
+            });
+        }
+
+        if (context.destructionPanel != nullptr)
+        {
+            context.destructionPanel->Draw({
                 context.scene,
                 context.selectedEntity
             });

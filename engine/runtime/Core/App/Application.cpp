@@ -19,8 +19,10 @@
 #include "Luma/Core/Foundation/Memory.h"
 #include "Luma/Core/Foundation/Platform.h"
 #include "Luma/Core/Foundation/Time.h"
+#include "Luma/Audio/Core/AudioSystem.h"
 #include "Luma/Input/Input.h"
 #include "Luma/RHI/RHIFactory.h"
+#include "Luma/Scripting/ScriptEngine.h"
 
 namespace Luma
 {
@@ -146,6 +148,16 @@ namespace Luma
         LUMA_CORE_ASSERT(m_Config.width > 0 && m_Config.height > 0, "Window dimensions must be greater than zero.");
         LUMA_LOG_INFO("Core", "Initializing application.");
 
+        if (!ScriptEngine::Initialize())
+        {
+            throw std::runtime_error("Failed to initialize ScriptEngine.");
+        }
+
+        if (!Audio::AudioSystem::Initialize())
+        {
+            LUMA_LOG_WARN("Audio", "Audio system initialization failed. Audio playback will be unavailable.");
+        }
+
         glfwSetErrorCallback(GlfwErrorCallback);
 
         if (!InitializeWindow())
@@ -181,6 +193,8 @@ namespace Luma
             throw std::runtime_error("Render backend initialization failed.");
         }
 
+        m_RenderBackend->SetVSyncEnabled(m_Config.vsyncEnabled);
+
         if (!InitializeImGui())
         {
             std::cerr << "ImGui initialization skipped or failed." << '\n';
@@ -201,6 +215,8 @@ namespace Luma
             m_RenderBackend.reset();
         }
 
+        ScriptEngine::Shutdown();
+        Audio::AudioSystem::Shutdown();
         Input::Shutdown();
         JobSystem::Stop();
         ShutdownWindow();
@@ -248,6 +264,8 @@ namespace Luma
             {
                 layer->OnUpdate(deltaTime);
             }
+
+            Audio::AudioSystem::Update(deltaTime);
 
             m_RenderBackend->BeginFrame();
             for (const auto& layer : m_LayerStack)

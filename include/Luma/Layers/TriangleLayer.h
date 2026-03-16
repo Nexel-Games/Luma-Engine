@@ -23,6 +23,7 @@
 #include "Luma/Asset/Streaming/ResourceStreamingService.h"
 #include "Luma/Editor/Content/ContentBrowserCache.h"
 #include "Luma/Editor/Content/ContentBrowserHostFacadeService.h"
+#include "Luma/Editor/Content/ContentRootWatchService.h"
 #include "Luma/Editor/Content/ContentThumbnailHostService.h"
 #include "Luma/Editor/Console/ConsoleCommandHostService.h"
 #include "Luma/Editor/Console/ConsolePanelHostService.h"
@@ -35,6 +36,7 @@
 #include "Luma/Editor/Core/GameplayInputBindingService.h"
 #include "Luma/Editor/Core/EditorTickCoordinatorService.h"
 #include "Luma/Editor/Scene/EntityTemplateCreationService.h"
+#include "Luma/Editor/Scene/PrefabWorkflowService.h"
 #include "Luma/Editor/Scene/SceneEntityUtilityService.h"
 #include "Luma/Editor/Viewport/EditorViewportDebugOverlay.h"
 #include "Luma/Editor/Viewport/EditorViewportInteraction.h"
@@ -50,7 +52,9 @@
 #include "Luma/Editor/Panels/Scene/EntityCreationMenu.h"
 #include "Luma/Editor/Panels/Chrome/FooterBarPanel.h"
 #include "Luma/Editor/Panels/Rendering/GPUResourcesPanel.h"
+#include "Luma/Editor/Panels/Inspector/InspectorAudioPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorCameraLightingPanel.h"
+#include "Luma/Editor/Panels/Inspector/InspectorDestructionPanel.h"
 #include "Luma/Editor/Panels/Content/ContentBrowserPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorAdvancedPhysicsPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorAddComponentPanel.h"
@@ -64,6 +68,7 @@
 #include "Luma/Editor/Panels/Inspector/InspectorPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorPhysicsEventsPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorPhysicsPanel.h"
+#include "Luma/Editor/Panels/Inspector/InspectorScriptPanel.h"
 #include "Luma/Editor/Panels/Inspector/InspectorVehiclePhysicsPanel.h"
 #include "Luma/Editor/Panels/Packages/PackageManagerPanel.h"
 #include "Luma/Editor/Packages/PackageManagerHostFacadeService.h"
@@ -97,17 +102,35 @@
 #include "Luma/Physics/PhysicsSystem.h"
 #include "Luma/Renderer/PrimitiveMeshFactory.h"
 #include "Luma/RHI/GPUResourceManager.h"
+#include "Luma/Scene/EditorRuntimeOnlyComponent.h"
 #include "Luma/Scene/MaterialComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
 #include "Luma/Scene/PostProcessComponent.h"
 #include "Luma/Scene/Scene.h"
 #include "Luma/Scene/SkyLightComponent.h"
 #include "Luma/Scene/TransformComponent.h"
+#include "Luma/Scripting/LuaScriptRuntime.h"
 
 namespace Luma
 {
     enum class LogLevel : int;
     class IRenderPipeline;
+
+    enum class EditorPlayState : std::uint8_t
+    {
+        Stopped = 0,
+        Playing,
+        Paused
+    };
+
+    struct CameraActorMeshState
+    {
+        bool loadAttempted = false;
+        bool loadFailed = false;
+        std::filesystem::path resolvedPath;
+        std::vector<Assets::MeshScenePart> parts;
+        std::vector<MeshDesc> meshes;
+    };
 
     class TriangleLayer final : public Layer
     {
@@ -144,23 +167,25 @@ namespace Luma
         void DrawFooter();
         void DrawGPUResourcesPanel();
         void DrawInspectorPanel();
+        void StartSceneAudioPlayback();
+        void StopSceneAudioPlayback();
+        void UpdateSceneAudioRuntime();
+        void EnterPlayMode();
+        void TogglePausePlayMode();
+        bool StopPlayMode();
+        EntityID EnsurePlayModeGameCameraEntity();
         EntityID CreateEntityFromTemplate(Editor::EntityTemplateKind templateKind, EntityID parentEntity = entt::null);
         EntityID CreateEntityFromMeshAsset(
             const std::filesystem::path& assetPath,
             EntityID parentEntity = entt::null,
             const std::array<float, 3>* worldPosition = nullptr);
-        std::filesystem::path ResolveMaterialAssetDirectory(const std::filesystem::path& fallbackDirectory = {}) const;
-        std::filesystem::path BuildUniqueMaterialAssetPath(
-            const std::filesystem::path& directory,
-            std::string_view baseName) const;
-        bool SaveMaterialAssetFile(
-            const std::filesystem::path& assetPath,
-            const MaterialComponent& material,
-            std::string& outError) const;
-        bool EnsureEntityMaterialAsset(
-            EntityID entity,
-            MaterialComponent& material,
-            std::string_view suggestedBaseName);
+        Editor::EntityTemplateCreationContext BuildEntityTemplateCreationContext();
+        Editor::MeshEntityImportContext BuildMeshEntityImportContext();
+        Editor::PrefabWorkflowContext BuildPrefabWorkflowContext();
+        Editor::InspectorHostContext BuildInspectorHostContext();
+        Editor::HierarchyPanelContext BuildHierarchyPanelContext();
+        Editor::ProjectSettingsPanelContext BuildProjectSettingsPanelContext();
+        Editor::PluginsPanelContext BuildPluginsPanelContext();
         void DrawViewportPanel();
         void DrawContentBrowserPanel();
         bool EnsureGizmoToolbarIconsLoaded();
@@ -171,6 +196,12 @@ namespace Luma
         EntityID FindEditorCameraEntity() const;
         void RebuildScenePrimitiveMesh();
         void MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags flags = Editor::SceneRenderCacheDirtyFlags::All);
+        Editor::MeshStreamingGeometryContext BuildMeshStreamingGeometryContext();
+        Editor::SceneRenderCacheBuildContext BuildSceneRenderCacheBuildContext(
+            bool collectRenderSources,
+            bool buildScenePrimitiveMesh,
+            bool buildSkyPrimitiveMesh);
+        Editor::RenderFrameCoordinatorContext BuildRenderFrameCoordinatorContext(IRenderBackend& renderer);
         const PrimitiveMeshData* ResolveMeshRendererGeometry(
             const TransformComponent& transform,
             const MeshRendererComponent& meshRenderer);
@@ -183,6 +214,29 @@ namespace Luma
         void AddConsoleLine(LogLevel level, std::string_view category, std::string_view message, std::string_view line);
         Editor::ConsoleCommandHostContext BuildConsoleCommandHostContext();
         Editor::ContentBrowserHostFacadeContext BuildContentBrowserHostFacadeContext();
+        Editor::PackageManagerHostFacadeContext BuildPackageManagerHostFacadeContext();
+        Editor::EditorTickCoordinatorContext BuildEditorTickCoordinatorContext(float deltaTimeSeconds);
+        Editor::SceneStartupHostContext BuildSceneStartupHostContext();
+        Editor::SceneDocumentHostContext BuildSceneDocumentHostContext();
+        Editor::SceneDocumentHostContext BuildSceneDocumentHostContext() const;
+        Editor::SceneActionHostContext BuildSceneActionHostContext();
+        Editor::SceneBootstrapContext BuildSceneBootstrapContext();
+        Editor::SceneBootstrapContext BuildSceneBootstrapContext() const;
+        Editor::SceneRenderItemAssemblyContext BuildSceneRenderItemAssemblyContext(
+            const std::vector<Editor::PendingSceneRenderSource>& pendingRenderSources,
+            std::uint64_t renderItemsStateHash);
+        bool TryBuildBakedLightmap(
+            EntityID entity,
+            const TransformComponent& transform,
+            const MeshRendererComponent& meshRenderer,
+            const PrimitiveMeshData& geometry,
+            const MaterialRenderProxy& material,
+            BakedLightmapData& outLightmap) const;
+        void RefreshContentBrowserRoots();
+        void RefreshContentBrowserEntries();
+        void RefreshContentBrowserTreeAndEntries();
+        void RefreshContentBrowserAll();
+        void OpenContentBrowserAsset(const std::filesystem::path& assetPath, const std::string& entryName);
         EntityID FindPrimarySkyEntity() const;
         void BuildBlendedPostProcessView(
             const std::array<float, 3>& cameraWorldPosition,
@@ -209,6 +263,11 @@ namespace Luma
         void RefreshWindowTitle();
         void SeedDefaultSceneEntities();
         bool IsSelectionValid() const;
+        bool IsPlayModeActive() const;
+        bool IsPlayModePaused() const;
+        bool IsSceneSimulationEnabled() const;
+        std::vector<UUID> CaptureSelectedEntityUuids() const;
+        void RestoreSelectedEntityUuids(const std::vector<UUID>& selectionUuids, UUID primarySelectionUuid);
         Editor::SceneRenderCacheStateContext BuildSceneRenderCacheStateContext() const;
         Editor::SkyPreviewTextureHostContext BuildSkyPreviewTextureHostContext();
 
@@ -289,6 +348,7 @@ namespace Luma
         Editor::EditorTickCoordinatorService m_EditorTickCoordinatorService;
         Editor::EntityTemplateCreationService m_EntityTemplateCreationService;
         Editor::SceneEntityUtilityService m_SceneEntityUtilityService;
+        Editor::PrefabWorkflowService m_PrefabWorkflowService;
         Editor::ViewportAssetDropService m_ViewportAssetDropService;
         Editor::ConsolePanel m_ConsolePanel;
         Editor::EditorMenuBarPanel m_EditorMenuBarPanel;
@@ -299,7 +359,9 @@ namespace Luma
         Editor::HierarchyPanel m_HierarchyPanel;
         Editor::InspectorAddComponentPanel m_InspectorAddComponentPanel;
         Editor::InspectorAdvancedPhysicsPanel m_InspectorAdvancedPhysicsPanel;
+        Editor::InspectorAudioPanel m_InspectorAudioPanel;
         Editor::InspectorCameraLightingPanel m_InspectorCameraLightingPanel;
+        Editor::InspectorDestructionPanel m_InspectorDestructionPanel;
         Editor::InspectorEntityPanel m_InspectorEntityPanel;
         Editor::InspectorEnvironmentEffectsPanel m_InspectorEnvironmentEffectsPanel;
         Editor::InspectorFieldBuoyancyPanel m_InspectorFieldBuoyancyPanel;
@@ -309,6 +371,7 @@ namespace Luma
         Editor::InspectorPanel m_InspectorPanel;
         Editor::InspectorPhysicsEventsPanel m_InspectorPhysicsEventsPanel;
         Editor::InspectorPhysicsPanel m_InspectorPhysicsPanel;
+        Editor::InspectorScriptPanel m_InspectorScriptPanel;
         Editor::InspectorVehiclePhysicsPanel m_InspectorVehiclePhysicsPanel;
         Editor::MaterialTextureAssetPickerPanel m_MaterialTextureAssetPickerPanel;
         Editor::MaterialRenderProxyCacheService m_MaterialRenderProxyCacheService;
@@ -337,6 +400,7 @@ namespace Luma
         Editor::EditorStatusState m_EditorStatus;
         Editor::ContentBrowserCache m_ContentBrowserCache;
         Editor::ContentBrowserHostFacadeService m_ContentBrowserHostFacadeService;
+        Editor::ContentRootWatchService m_ContentRootWatchService;
         Editor::ContentThumbnailHostService m_ContentThumbnailHostService;
         Editor::MaterialTextureAssetPickerService m_MaterialTextureAssetPickerService;
         Editor::MeshEntityImportService m_MeshEntityImportService;
@@ -345,6 +409,7 @@ namespace Luma
         using ImportedScenePartsState = Editor::MeshStreamingImportedScenePartsState;
         std::unordered_map<std::string, ImportedScenePartsState> m_ImportedSceneParts;
         std::unordered_map<std::string, StreamedMeshAssetState> m_StreamedMeshAssets;
+        CameraActorMeshState m_CameraActorMeshState;
         Editor::MeshStreamingGeometryService m_MeshStreamingGeometryService;
         EditorTaskHandle m_StreamingTask = 0;
         bool m_StreamingTaskActive = false;
@@ -370,7 +435,13 @@ namespace Luma
         Editor::SceneRenderCacheDirtyFlags m_RenderSceneCacheDirtyFlags = Editor::SceneRenderCacheDirtyFlags::All;
         bool m_LastViewportGridEnabled = true;
         std::string m_LastSkyMeshSignature;
-
+        EditorPlayState m_PlayState = EditorPlayState::Stopped;
+        std::string m_PlaySceneSnapshot;
+        std::vector<UUID> m_PlaySelectedEntityUuids;
+        UUID m_PlayPrimarySelectedEntityUuid = 0;
+        std::filesystem::path m_PlaySelectedContentEntry;
+        EntityID m_PlayGameCameraEntity = entt::null;
+        LuaScriptRuntime m_LuaScriptRuntime;
         void* m_SkyboxPreviewTexture = nullptr;
         int m_SkyboxPreviewWidth = 0;
         int m_SkyboxPreviewHeight = 0;

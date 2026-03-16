@@ -2,6 +2,8 @@
 
 #include <string_view>
 
+#include <vector>
+
 #include "Luma/Physics/PhysicsTypes.h"
 
 namespace Luma
@@ -19,5 +21,6 @@ namespace Luma
         virtual bool Initialize(const PhysicsSettings& settings) = 0;
         virtual void Shutdown() = 0;
         virtual void Simulate(Scene& scene, float fixedDeltaTimeSeconds) = 0;
+        virtual void ConsumeEvents(std::vector<PhysicsEvent>& outEvents) = 0;
     };
 }

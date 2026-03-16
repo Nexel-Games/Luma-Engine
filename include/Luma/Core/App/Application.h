@@ -17,6 +17,7 @@ namespace Luma
         std::uint32_t width = 1600;
         std::uint32_t height = 900;
         RendererAPI rendererAPI = RendererAPI::OpenGL;
+        bool vsyncEnabled = true;
         bool startMaximized = false;
         std::uint32_t maxFrames = 0;
     };

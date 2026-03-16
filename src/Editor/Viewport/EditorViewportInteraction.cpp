@@ -560,5 +560,9 @@ namespace Luma::Editor
         }
 
         transform.dirty = true;
+        if (context.onTransformChanged)
+        {
+            context.onTransformChanged();
+        }
     }
 }

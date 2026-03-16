@@ -5,6 +5,7 @@
 
 #include <imgui.h>
 
+#include "Luma/Editor/Plugins/BuiltInPluginRegistry.h"
 #include "Luma/Editor/UI/TooltipAPI.h"
 
 namespace Luma::Editor
@@ -83,8 +84,11 @@ namespace Luma::Editor
             ShowItemTooltip("Open project config: rendering profile, backend, build profiles, and gameplay input.");
             MenuItemWithTooltip("Preferences", nullptr, context.showPreferencesPanel);
             ShowItemTooltip("Open editor preferences for viewport camera controls and debug options.");
-            MenuItemWithTooltip("Plugins", nullptr, context.showPluginsPanel);
-            ShowItemTooltip("Open the built-in plugin manager for this project.");
+            if (HasBuiltInPlugins())
+            {
+                MenuItemWithTooltip("Plugins", nullptr, context.showPluginsPanel);
+                ShowItemTooltip("Open the built-in plugin manager for this project.");
+            }
             ImGui::EndMenu();
         }
 

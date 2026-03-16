@@ -41,3 +41,15 @@ Luma Engine is in alpha development with working foundations for rendering, scen
 - Scene
 - Input
 - Editor
+
+## Building On Windows
+
+Use the checked-in CMake presets so every developer configures the project the same way:
+
+```powershell
+cmake --preset windows-vs18-debug
+cmake --build --preset windows-vs18-debug
+ctest --preset windows-vs18-debug -R "Luma\.Smoke\.(OpenGL|LuaRuntime|AudioRuntime|SceneRuntime|PrefabRuntime)"
+```
+
+The full supported Windows build flow is documented in [docs/building_windows.md](docs/building_windows.md).

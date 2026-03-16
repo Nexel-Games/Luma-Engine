@@ -122,6 +122,66 @@ namespace Luma::Editor
             std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/PlusSymbol_12x.png"),
             std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/PlusSymbol_12x.png")
         }, "Icons/PlusSymbol_12x.png"));
+        m_Icons.hierarchyCamera = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/AssetIcons/CameraActor_16x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/AssetIcons/CameraActor_16x.png")
+        }, "Icons/AssetIcons/CameraActor_16x.png"));
+        m_Icons.pointLight = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/AssetIcons/PointLight_16x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/AssetIcons/PointLight_16x.png")
+        }, "Icons/AssetIcons/PointLight_16x.png"));
+        m_Icons.hierarchyCube = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/icon_MatEd_Cube_40x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/icon_MatEd_Cube_40x.png")
+        }, "Icons/icon_MatEd_Cube_40x.png"));
+        m_Icons.hierarchyPlane = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/icon_MatEd_Plane_40x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/icon_MatEd_Plane_40x.png")
+        }, "Icons/icon_MatEd_Plane_40x.png"));
+        m_Icons.hierarchySphere = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/icon_MatEd_Sphere_40x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/icon_MatEd_Sphere_40x.png")
+        }, "Icons/icon_MatEd_Sphere_40x.png"));
+        m_Icons.hierarchyCylinder = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/icon_MatEd_Cylinder_40x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/icon_MatEd_Cylinder_40x.png")
+        }, "Icons/icon_MatEd_Cylinder_40x.png"));
+        m_Icons.hierarchyRigidBody = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/PhysicsAssetEditor/icon_PHatMode_Body_40x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/PhysicsAssetEditor/icon_PHatMode_Body_40x.png")
+        }, "PhysicsAssetEditor/icon_PHatMode_Body_40x.png"));
+        m_Icons.hierarchyHinge = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/PhysicsAssetEditor/icon_PhAT_Hinge_40x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/PhysicsAssetEditor/icon_PhAT_Hinge_40x.png")
+        }, "PhysicsAssetEditor/icon_PhAT_Hinge_40x.png"));
+        m_Icons.viewportPanel = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/icon_tab_Viewports_16x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/icon_tab_Viewports_16x.png")
+        }, "Icons/icon_tab_Viewports_16x.png"));
+        m_Icons.contentAudio = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Sequencer/Dropdown_Icons/Icon_Audio_Track_16x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Sequencer/Dropdown_Icons/Icon_Audio_Track_16x.png")
+        }, "Sequencer/Dropdown_Icons/Icon_Audio_Track_16x.png"));
+        m_Icons.physicsKinematicBody = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/PhysicsAssetEditor/KinematicBody_16x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/PhysicsAssetEditor/KinematicBody_16x.png")
+        }, "PhysicsAssetEditor/KinematicBody_16x.png"));
+        m_Icons.physicsColliderBox = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/PhysicsAssetEditor/icon_PhAT_Box_40x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/PhysicsAssetEditor/icon_PhAT_Box_40x.png")
+        }, "PhysicsAssetEditor/icon_PhAT_Box_40x.png"));
+        m_Icons.physicsColliderSphere = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/PhysicsAssetEditor/icon_PhAT_Sphere_40x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/PhysicsAssetEditor/icon_PhAT_Sphere_40x.png")
+        }, "PhysicsAssetEditor/icon_PhAT_Sphere_40x.png"));
+        m_Icons.physicsColliderCapsule = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/PhysicsAssetEditor/icon_PhAT_TaperedCapsule_40x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/PhysicsAssetEditor/icon_PhAT_TaperedCapsule_40x.png")
+        }, "PhysicsAssetEditor/icon_PhAT_TaperedCapsule_40x.png"));
+        m_Icons.physicsColliderConvex = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/PhysicsAssetEditor/Convex_16x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/PhysicsAssetEditor/Convex_16x.png")
+        }, "PhysicsAssetEditor/Convex_16x.png"));
         m_Icons.toolbarSelectionDetails = LoadIconFromCandidates(*renderer, BuildIconCandidates({
             std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/generic_play_16x.png"),
             std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/generic_play_16x.png")
@@ -166,6 +226,21 @@ namespace Luma::Editor
         ReleaseIcon(renderer, m_Icons.gizmoGrid);
         ReleaseIcon(renderer, m_Icons.hierarchyPanel);
         ReleaseIcon(renderer, m_Icons.hierarchyCreate);
+        ReleaseIcon(renderer, m_Icons.hierarchyCamera);
+        ReleaseIcon(renderer, m_Icons.pointLight);
+        ReleaseIcon(renderer, m_Icons.hierarchyCube);
+        ReleaseIcon(renderer, m_Icons.hierarchyPlane);
+        ReleaseIcon(renderer, m_Icons.hierarchySphere);
+        ReleaseIcon(renderer, m_Icons.hierarchyCylinder);
+        ReleaseIcon(renderer, m_Icons.hierarchyRigidBody);
+        ReleaseIcon(renderer, m_Icons.hierarchyHinge);
+        ReleaseIcon(renderer, m_Icons.viewportPanel);
+        ReleaseIcon(renderer, m_Icons.contentAudio);
+        ReleaseIcon(renderer, m_Icons.physicsKinematicBody);
+        ReleaseIcon(renderer, m_Icons.physicsColliderBox);
+        ReleaseIcon(renderer, m_Icons.physicsColliderSphere);
+        ReleaseIcon(renderer, m_Icons.physicsColliderCapsule);
+        ReleaseIcon(renderer, m_Icons.physicsColliderConvex);
         ReleaseIcon(renderer, m_Icons.toolbarSelectionDetails);
         ReleaseIcon(renderer, m_Icons.toolbarPause);
         ReleaseIcon(renderer, m_Icons.toolbarStop);
@@ -182,6 +257,21 @@ namespace Luma::Editor
             m_Icons.gizmoGrid != nullptr ||
             m_Icons.hierarchyPanel != nullptr ||
             m_Icons.hierarchyCreate != nullptr ||
+            m_Icons.hierarchyCamera != nullptr ||
+            m_Icons.pointLight != nullptr ||
+            m_Icons.hierarchyCube != nullptr ||
+            m_Icons.hierarchyPlane != nullptr ||
+            m_Icons.hierarchySphere != nullptr ||
+            m_Icons.hierarchyCylinder != nullptr ||
+            m_Icons.hierarchyRigidBody != nullptr ||
+            m_Icons.hierarchyHinge != nullptr ||
+            m_Icons.viewportPanel != nullptr ||
+            m_Icons.contentAudio != nullptr ||
+            m_Icons.physicsKinematicBody != nullptr ||
+            m_Icons.physicsColliderBox != nullptr ||
+            m_Icons.physicsColliderSphere != nullptr ||
+            m_Icons.physicsColliderCapsule != nullptr ||
+            m_Icons.physicsColliderConvex != nullptr ||
             m_Icons.toolbarSelectionDetails != nullptr ||
             m_Icons.toolbarPause != nullptr ||
             m_Icons.toolbarStop != nullptr;

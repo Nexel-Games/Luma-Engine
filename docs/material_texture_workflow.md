@@ -100,7 +100,7 @@ These are still real limits:
 1. Direct `.lumamesh` drops do not automatically rebuild multi-material scene-part structure.
 2. Opacity / masked material behavior is not fully represented in the runtime shader path yet.
 3. Emissive and advanced material features are still behind the current simplified scene shader.
-4. This is not yet a full prefab/material-import pipeline like Unreal.
+4. This is still not a full prefab/material-import pipeline like Unreal, but imported hierarchies can now be turned into `.lumaprefab` assets after placement and then managed through the prefab workflow.
 
 ## If You See Geometry But No Textures
 
@@ -128,4 +128,4 @@ The next logical upgrades are:
 1. preserve material-slot metadata inside cooked mesh assets
 2. auto-create material assets during import
 3. support full masked / opacity texture rendering
-4. add prefab creation from imported scene hierarchies
+4. improve prefab authoring ergonomics for imported scene hierarchies

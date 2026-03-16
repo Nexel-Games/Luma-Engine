@@ -31,7 +31,7 @@ namespace Luma
         }
 
         glfwMakeContextCurrent(m_Window);
-        glfwSwapInterval(1);
+        SetVSyncEnabled(m_VSyncEnabled);
 
         if (gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)) == 0)
         {
@@ -824,11 +824,32 @@ namespace Luma
 
         m_CurrentRenderPass = renderPass;
         glBindFramebuffer(GL_FRAMEBUFFER, framebufferToBind);
-        glDisable(GL_SCISSOR_TEST);
         glEnable(GL_DEPTH_TEST);
         glDepthMask(GL_TRUE);
         glDepthFunc(GL_LESS);
-        glViewport(0, 0, static_cast<int>(viewportWidth), static_cast<int>(viewportHeight));
+        if (m_UseSceneViewportRegion)
+        {
+            const std::uint32_t regionX = std::min(m_SceneViewportX, viewportWidth);
+            const std::uint32_t regionY = std::min(m_SceneViewportY, viewportHeight);
+            const std::uint32_t regionWidth = std::min(m_SceneViewportWidth, viewportWidth - regionX);
+            const std::uint32_t regionHeight = std::min(m_SceneViewportHeight, viewportHeight - regionY);
+            glEnable(GL_SCISSOR_TEST);
+            glScissor(
+                static_cast<GLint>(regionX),
+                static_cast<GLint>(regionY),
+                static_cast<GLsizei>(regionWidth),
+                static_cast<GLsizei>(regionHeight));
+            glViewport(
+                static_cast<GLint>(regionX),
+                static_cast<GLint>(regionY),
+                static_cast<GLsizei>(regionWidth),
+                static_cast<GLsizei>(regionHeight));
+        }
+        else
+        {
+            glDisable(GL_SCISSOR_TEST);
+            glViewport(0, 0, static_cast<int>(viewportWidth), static_cast<int>(viewportHeight));
+        }
         glClearColor(
             it->second.desc.clearColor.r,
             it->second.desc.clearColor.g,
@@ -840,6 +861,7 @@ namespace Luma
 
     void OpenGLRenderBackend::EndRenderPass()
     {
+        glDisable(GL_SCISSOR_TEST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         m_CurrentRenderPass = InvalidResourceHandle;
     }
@@ -977,6 +999,21 @@ namespace Luma
     RendererAPI OpenGLRenderBackend::GetAPI() const
     {
         return RendererAPI::OpenGL;
+    }
+
+    void OpenGLRenderBackend::SetVSyncEnabled(const bool enabled)
+    {
+        m_VSyncEnabled = enabled;
+        if (m_Window != nullptr)
+        {
+            glfwMakeContextCurrent(m_Window);
+            glfwSwapInterval(enabled ? 1 : 0);
+        }
+    }
+
+    bool OpenGLRenderBackend::IsVSyncEnabled() const
+    {
+        return m_VSyncEnabled;
     }
 
     void OpenGLRenderBackend::SetSceneOutputSize(

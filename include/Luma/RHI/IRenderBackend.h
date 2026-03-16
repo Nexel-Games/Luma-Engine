@@ -52,6 +52,14 @@ namespace Luma
         virtual void OnResize(std::uint32_t width, std::uint32_t height) = 0;
         virtual void WaitIdle() = 0;
         virtual RendererAPI GetAPI() const = 0;
+        virtual void SetVSyncEnabled(bool enabled)
+        {
+            (void)enabled;
+        }
+        virtual bool IsVSyncEnabled() const
+        {
+            return false;
+        }
         virtual void SetSceneOutputSize(std::uint32_t width, std::uint32_t height)
         {
             (void)width;

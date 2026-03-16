@@ -7,6 +7,7 @@
 
 #include "Luma/Scene/CameraComponent.h"
 #include "Luma/Scene/DirectionalLightComponent.h"
+#include "Luma/Scene/EditorRuntimeOnlyComponent.h"
 #include "Luma/Scene/PointLightComponent.h"
 #include "Luma/Scene/SkyLightComponent.h"
 #include "Luma/Scene/SpotLightComponent.h"
@@ -72,6 +73,58 @@ namespace Luma::Editor
 
             const float invLength = 1.0f / std::sqrt(lengthSq);
             return value * invLength;
+        }
+
+        std::array<float, 3> KelvinToRgb(const float kelvin)
+        {
+            const float temperature = std::clamp(kelvin, 1000.0f, 40000.0f) / 100.0f;
+            float red = 255.0f;
+            float green = 255.0f;
+            float blue = 255.0f;
+
+            if (temperature > 66.0f)
+            {
+                red = 329.698727446f * std::pow(temperature - 60.0f, -0.1332047592f);
+                green = 288.1221695283f * std::pow(temperature - 60.0f, -0.0755148492f);
+            }
+            else
+            {
+                green = 99.4708025861f * std::log(std::max(temperature, 1.0f)) - 161.1195681661f;
+            }
+
+            if (temperature < 66.0f)
+            {
+                if (temperature <= 19.0f)
+                {
+                    blue = 0.0f;
+                }
+                else
+                {
+                    blue = 138.5177312231f * std::log(std::max(temperature - 10.0f, 1.0f)) - 305.0447927307f;
+                }
+            }
+
+            return {
+                std::clamp(red / 255.0f, 0.0f, 1.0f),
+                std::clamp(green / 255.0f, 0.0f, 1.0f),
+                std::clamp(blue / 255.0f, 0.0f, 1.0f)
+            };
+        }
+
+        std::uint32_t NormalizeShadowResolution(std::uint32_t resolution)
+        {
+            resolution = std::clamp<std::uint32_t>(resolution, 128u, 2048u);
+            std::uint32_t normalized = 128u;
+            while (normalized < resolution && normalized < 2048u)
+            {
+                normalized <<= 1u;
+            }
+            const std::uint32_t lower = normalized >> 1u;
+            if (lower >= 128u && normalized - resolution > resolution - lower)
+            {
+                normalized = lower;
+            }
+            return std::clamp<std::uint32_t>(normalized, 128u, 2048u);
         }
 
         Mat4 Multiply(const Mat4& lhs, const Mat4& rhs)
@@ -148,6 +201,26 @@ namespace Luma::Editor
             return result;
         }
 
+        Mat4 BuildOrthographic(
+            const float left,
+            const float right,
+            const float bottom,
+            const float top,
+            const float nearPlane,
+            const float farPlane)
+        {
+            Mat4 result {};
+            result.elements.fill(0.0f);
+            result.elements[0] = 2.0f / (right - left);
+            result.elements[5] = 2.0f / (top - bottom);
+            result.elements[10] = -2.0f / (farPlane - nearPlane);
+            result.elements[12] = -(right + left) / (right - left);
+            result.elements[13] = -(top + bottom) / (top - bottom);
+            result.elements[14] = -(farPlane + nearPlane) / (farPlane - nearPlane);
+            result.elements[15] = 1.0f;
+            return result;
+        }
+
         Mat4 BuildLookAt(const Vec3& eye, const Vec3& center, const Vec3& worldUp)
         {
             const Vec3 forward = Normalize(center - eye);
@@ -216,15 +289,12 @@ namespace Luma::Editor
             return selectedEntity;
         }
 
-        const auto view = registry.view<TransformComponent, CameraComponent>();
-        for (const EntityID entity : view)
+        if (const EntityID runtimeCamera = FindHighestPriorityPrimaryCameraEntity(scene); runtimeCamera != entt::null)
         {
-            const auto& camera = view.get<CameraComponent>(entity);
-            if (camera.primary)
-            {
-                return entity;
-            }
+            return runtimeCamera;
         }
+
+        const auto view = registry.view<TransformComponent, CameraComponent>();
 
         for (const EntityID entity : view)
         {
@@ -232,6 +302,36 @@ namespace Luma::Editor
         }
 
         return entt::null;
+    }
+
+    EntityID FindHighestPriorityPrimaryCameraEntity(const Scene& scene)
+    {
+        const auto& registry = scene.GetRegistry();
+        const auto view = registry.view<TransformComponent, CameraComponent>();
+
+        EntityID bestEntity = entt::null;
+        int bestPriority = std::numeric_limits<int>::min();
+        for (const EntityID entity : view)
+        {
+            if (registry.all_of<EditorRuntimeOnlyComponent>(entity))
+            {
+                continue;
+            }
+
+            const auto& camera = view.get<CameraComponent>(entity);
+            if (!camera.active || !camera.primary)
+            {
+                continue;
+            }
+
+            if (bestEntity == entt::null || camera.renderPriority > bestPriority)
+            {
+                bestEntity = entity;
+                bestPriority = camera.renderPriority;
+            }
+        }
+
+        return bestEntity;
     }
 
     EntityID FindPrimarySkyEntity(const Scene& scene)
@@ -285,33 +385,65 @@ namespace Luma::Editor
         sceneView.renderItemsRevision = input.renderItemsRevision;
 
         const auto& registry = input.scene->GetRegistry();
-        const EntityID lensSourceEntity = input.previewSceneCameraLens
-            ? FindEditorCameraEntity(*input.scene, input.selectedEntity)
-            : entt::null;
+        const bool hasActiveCameraEntity =
+            input.activeCameraEntity != entt::null &&
+            registry.valid(input.activeCameraEntity) &&
+            registry.all_of<TransformComponent, CameraComponent>(input.activeCameraEntity);
+        const EntityID lensSourceEntity = hasActiveCameraEntity ? input.activeCameraEntity : entt::null;
         result.lensSourceEntity = lensSourceEntity;
 
         float nearPlane = 0.1f;
         float farPlane = 2000.0f;
         float fovDegrees = 60.0f;
-        if (input.previewSceneCameraLens &&
+        float orthographicSize = 5.0f;
+        std::uint32_t activeCameraCullingMask = 0xFFFFFFFFu;
+        float projectionAspectRatio = static_cast<float>(sceneView.outputWidth) /
+            static_cast<float>(std::max(sceneView.outputHeight, 1u));
+        CameraProjectionMode projectionMode = CameraProjectionMode::Perspective;
+        std::array<float, 4> clearColor = sceneView.clearColor;
+        if (lensSourceEntity != entt::null &&
             lensSourceEntity != entt::null &&
             registry.valid(lensSourceEntity) &&
             registry.all_of<TransformComponent, CameraComponent>(lensSourceEntity))
         {
             const auto& camera = registry.get<CameraComponent>(lensSourceEntity);
+            projectionMode = camera.projection;
             fovDegrees = std::clamp(camera.fovDegrees, 10.0f, 170.0f);
+            orthographicSize = std::max(camera.orthographicSize, 0.01f);
+            nearPlane = std::max(camera.nearClip, 0.001f);
+            farPlane = std::max(camera.farClip, nearPlane + 0.1f);
+            activeCameraCullingMask = camera.cullingMask;
+            projectionAspectRatio = camera.useViewportAspectRatio
+                ? projectionAspectRatio
+                : std::max(camera.aspectRatio, 0.001f);
+            if (camera.clearMode == CameraClearMode::SolidColor)
+            {
+                clearColor = camera.clearColor;
+            }
         }
 
         constexpr float kPi = 3.14159265359f;
-        const float aspectRatio = static_cast<float>(sceneView.outputWidth) /
-            static_cast<float>(std::max(sceneView.outputHeight, 1u));
-        const float yawRadians = input.editorCamera.yaw * (kPi / 180.0f);
-        const float pitchRadians = input.editorCamera.pitch * (kPi / 180.0f);
-        const Vec3 eye {
+        Vec3 eye {
             input.editorCamera.position[0],
             input.editorCamera.position[1],
             input.editorCamera.position[2]
         };
+        float yawDegrees = input.editorCamera.yaw;
+        float pitchDegrees = input.editorCamera.pitch;
+        if (hasActiveCameraEntity)
+        {
+            const auto& activeCameraTransform = registry.get<TransformComponent>(input.activeCameraEntity);
+            eye = {
+                activeCameraTransform.worldPosition[0],
+                activeCameraTransform.worldPosition[1],
+                activeCameraTransform.worldPosition[2]
+            };
+            pitchDegrees = activeCameraTransform.worldRotation[0];
+            yawDegrees = activeCameraTransform.worldRotation[1];
+        }
+
+        const float yawRadians = yawDegrees * (kPi / 180.0f);
+        const float pitchRadians = pitchDegrees * (kPi / 180.0f);
         const Vec3 forward = Normalize({
             std::cos(yawRadians) * std::cos(pitchRadians),
             std::sin(pitchRadians),
@@ -319,10 +451,21 @@ namespace Luma::Editor
         });
         const float fovRadians = fovDegrees * (kPi / 180.0f);
         const Mat4 view = BuildLookAt(eye, eye + forward, Vec3 { 0.0f, 1.0f, 0.0f });
-        const Mat4 projection = BuildPerspective(fovRadians, aspectRatio, nearPlane, farPlane);
+        Mat4 projection {};
+        if (projectionMode == CameraProjectionMode::Orthographic)
+        {
+            const float halfHeight = orthographicSize;
+            const float halfWidth = halfHeight * projectionAspectRatio;
+            projection = BuildOrthographic(-halfWidth, halfWidth, -halfHeight, halfHeight, nearPlane, farPlane);
+        }
+        else
+        {
+            projection = BuildPerspective(fovRadians, projectionAspectRatio, nearPlane, farPlane);
+        }
         const Mat4 viewProjection = Multiply(projection, view);
         sceneView.viewProjection = viewProjection.elements;
         sceneView.cameraWorldPosition = { eye.x, eye.y, eye.z };
+        sceneView.clearColor = clearColor;
         sceneView.ambientLightColor = { 0.09f, 0.11f, 0.14f };
         sceneView.ambientLightIntensity = 0.35f;
         sceneView.directionalLight.enabled = false;
@@ -402,7 +545,11 @@ namespace Luma::Editor
         for (const EntityID entity : pointLights)
         {
             const auto& pointLight = pointLights.get<PointLightComponent>(entity);
-            if (!pointLight.active || pointLight.intensity <= 0.0f || pointLight.range <= 0.05f)
+            if (!pointLight.active ||
+                pointLight.mode == PointLightMode::Baked ||
+                (pointLight.cullingMask & activeCameraCullingMask) == 0u ||
+                pointLight.intensity <= 0.0f ||
+                pointLight.range <= 0.05f)
             {
                 continue;
             }
@@ -416,14 +563,37 @@ namespace Luma::Editor
             const Vec3 toLight = lightPosition - eye;
             const float distanceSq = Dot(toLight, toLight);
             const float range = std::max(pointLight.range, 0.05f);
-            const float score = pointLight.intensity * range * range / (1.0f + distanceSq);
+            float renderModeWeight = 1.0f;
+            switch (pointLight.renderMode)
+            {
+            case PointLightRenderMode::Important:
+                renderModeWeight = 4.0f;
+                break;
+            case PointLightRenderMode::NotImportant:
+                renderModeWeight = 0.35f;
+                break;
+            case PointLightRenderMode::Auto:
+            default:
+                break;
+            }
+            const float score = pointLight.intensity * range * range * renderModeWeight / (1.0f + distanceSq);
 
             PointLightDesc desc;
             desc.enabled = true;
             desc.position = { lightPosition.x, lightPosition.y, lightPosition.z };
-            desc.color = pointLight.color;
+            const std::array<float, 3> temperatureColor = KelvinToRgb(pointLight.temperature);
+            desc.color = {
+                pointLight.color[0] * temperatureColor[0],
+                pointLight.color[1] * temperatureColor[1],
+                pointLight.color[2] * temperatureColor[2]
+            };
             desc.intensity = pointLight.intensity;
             desc.range = range;
+            desc.attenuation = std::max(pointLight.attenuation, 0.001f);
+            desc.castsShadows = pointLight.castShadows && pointLight.mode != PointLightMode::Baked;
+            desc.softShadows = pointLight.shadowType == PointLightShadowType::SoftShadows;
+            desc.shadowBias = std::max(pointLight.shadowBias, 0.0f);
+            desc.shadowResolution = NormalizeShadowResolution(pointLight.shadowResolution);
             insertPointLight(desc, score);
         }
 

@@ -151,7 +151,7 @@ namespace Luma
                 bool enabled = false;
             };
 
-            std::uint32_t schemaVersion = 3;
+            std::uint32_t schemaVersion = 5;
             std::string name;
             std::string engineVersion = "0.0.1";
             std::string projectVersion = "0.1.0";
@@ -160,6 +160,8 @@ namespace Luma
             RenderPipelineProfile pipeline = RenderPipelineProfile::CoreLite;
             BackendPreference backend = BackendPreference::OpenGL;
             bool vsync = true;
+            std::vector<std::string> tags;
+            std::vector<std::string> layers;
             std::vector<PluginConfig> plugins;
             BuildSettings build {};
         };

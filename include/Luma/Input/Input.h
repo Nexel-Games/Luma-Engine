@@ -13,6 +13,9 @@ namespace Luma
     enum class KeyCode : std::uint16_t
     {
         Unknown = 0,
+        Space,
+        C,
+        R,
         W,
         A,
         S,
@@ -211,10 +214,15 @@ namespace Luma
         static std::vector<InputBinding> GetActionBindings(
             std::string_view contextName,
             std::string_view actionName);
+        static std::vector<InputContextDesc> GetRegisteredContexts();
         static float GetActionValue(std::string_view actionName);
+        static float GetActionValue(std::string_view contextName, std::string_view actionName);
         static bool IsActionActive(std::string_view actionName);
+        static bool IsActionActive(std::string_view contextName, std::string_view actionName);
         static bool WasActionStarted(std::string_view actionName);
+        static bool WasActionStarted(std::string_view contextName, std::string_view actionName);
         static bool WasActionCompleted(std::string_view actionName);
+        static bool WasActionCompleted(std::string_view contextName, std::string_view actionName);
         static bool PollNextBinding(InputBinding& outBinding, bool includeAxes = true);
         static bool IsDeviceAvailable(InputDeviceType device);
 

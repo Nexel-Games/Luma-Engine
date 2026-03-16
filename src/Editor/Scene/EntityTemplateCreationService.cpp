@@ -1,10 +1,13 @@
 #include "Luma/Editor/Scene/EntityTemplateCreationService.h"
 
+#include "Luma/Scene/AudioListenerComponent.h"
+#include "Luma/Scene/AudioSourceComponent.h"
 #include "Luma/Scene/CameraComponent.h"
 #include "Luma/Scene/ColliderComponent.h"
 #include "Luma/Scene/DirectionalLightComponent.h"
 #include "Luma/Scene/MaterialComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
+#include "Luma/Scene/PointLightComponent.h"
 #include "Luma/Scene/SkyLightComponent.h"
 #include "Luma/Scene/TransformComponent.h"
 
@@ -36,10 +39,14 @@ namespace Luma::Editor
                 return "Camera";
             case EntityTemplateKind::DirectionalLight:
                 return "Directional Light";
+            case EntityTemplateKind::PointLight:
+                return "Point Light";
             case EntityTemplateKind::SkyLight:
                 return "Sky Light";
             case EntityTemplateKind::Player:
                 return "Player";
+            case EntityTemplateKind::AudioSource:
+                return "Audio Source";
             default:
                 return "Entity";
             }
@@ -71,10 +78,22 @@ namespace Luma::Editor
             transform.rotation = { 0.0f, -90.0f, 0.0f };
             transform.dirty = true;
             entity.AddComponent<CameraComponent>();
+            entity.AddComponent<AudioListenerComponent>();
+        }
+        else if (templateKind == EntityTemplateKind::AudioSource)
+        {
+            entity.AddComponent<AudioSourceComponent>();
         }
         else if (templateKind == EntityTemplateKind::DirectionalLight)
         {
             entity.AddComponent<DirectionalLightComponent>();
+        }
+        else if (templateKind == EntityTemplateKind::PointLight)
+        {
+            auto& transform = entity.GetComponent<TransformComponent>();
+            transform.position = { 0.0f, 1.0f, 0.0f };
+            transform.dirty = true;
+            entity.AddComponent<PointLightComponent>();
         }
         else if (templateKind == EntityTemplateKind::SkyLight)
         {

@@ -99,10 +99,23 @@ namespace Luma::Editor
                                      void* texture,
                                      const char* fallbackLabel,
                                      const char* tooltip,
+                                     const bool enabled,
+                                     const bool active,
                                      const float buttonDim,
                                      const float iconDim)
         {
             const float padding = std::max(0.0f, (buttonDim - iconDim) * 0.5f);
+            const bool pushDisabled = !enabled;
+            if (pushDisabled)
+            {
+                ImGui::BeginDisabled();
+            }
+            if (active)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.36f, 0.58f, 0.98f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.42f, 0.68f, 0.98f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.18f, 0.30f, 0.48f, 1.0f));
+            }
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(padding, padding));
             bool pressed = false;
             if (texture != nullptr)
@@ -121,6 +134,14 @@ namespace Luma::Editor
                 pressed = ButtonWithTooltip(fallbackLabel, ImVec2(buttonDim, buttonDim));
             }
             ImGui::PopStyleVar();
+            if (active)
+            {
+                ImGui::PopStyleColor(3);
+            }
+            if (pushDisabled)
+            {
+                ImGui::EndDisabled();
+            }
             ShowItemTooltip(tooltip);
             return pressed;
         };
@@ -134,7 +155,9 @@ namespace Luma::Editor
                 "##EditorToolbarPlay",
                 context.playIconTexture,
                 "Play",
-                "Play current editor scene (simulation placeholder).",
+                context.playActive ? "Play mode is active." : "Enter play mode and simulate the current scene.",
+                context.playEnabled,
+                context.playActive,
                 buttonSize,
                 iconSize) &&
             context.onPlay)
@@ -147,7 +170,9 @@ namespace Luma::Editor
                 "##EditorToolbarPause",
                 context.pauseIconTexture,
                 "Pause",
-                "Pause scene simulation (placeholder).",
+                context.pauseActive ? "Resume scene simulation." : "Pause scene simulation without leaving play mode.",
+                context.pauseEnabled,
+                context.pauseActive,
                 buttonSize,
                 iconSize) &&
             context.onPause)
@@ -160,7 +185,9 @@ namespace Luma::Editor
                 "##EditorToolbarStop",
                 context.stopIconTexture,
                 "Stop",
-                "Stop scene simulation and return to edit mode (placeholder).",
+                "Stop scene simulation and restore the pre-play editor scene.",
+                context.stopEnabled,
+                false,
                 buttonSize,
                 iconSize) &&
             context.onStop)

@@ -89,6 +89,36 @@ namespace Luma::Editor
             return value;
         }
 
+        std::string TrimString(std::string value)
+        {
+            auto isWhitespace = [](const unsigned char c)
+            {
+                return std::isspace(c) != 0;
+            };
+
+            value.erase(
+                value.begin(),
+                std::find_if(
+                    value.begin(),
+                    value.end(),
+                    [&](const unsigned char c)
+                    {
+                        return !isWhitespace(c);
+                    }));
+
+            value.erase(
+                std::find_if(
+                    value.rbegin(),
+                    value.rend(),
+                    [&](const unsigned char c)
+                    {
+                        return !isWhitespace(c);
+                    }).base(),
+                value.end());
+
+            return value;
+        }
+
         std::filesystem::path NormalizePathForComparison(const std::filesystem::path& path)
         {
             if (path.empty())
@@ -207,6 +237,7 @@ namespace Luma::Editor
         auto& selectedEntry = *context.selectedEntry;
         auto& status = *context.status;
         ContentBrowserCache& cache = *context.cache;
+        bool requestCreateScriptPopup = false;
 
         constexpr float leftPaneWidth = 240.0f;
         ImGui::BeginChild("##ContentBrowserLeftPane", ImVec2(leftPaneWidth, 0.0f), true);
@@ -614,6 +645,14 @@ namespace Luma::Editor
                     {
                         pendingScenePath = entryPath;
                     }
+                    else if (!isDirectory &&
+                             ToLowerString(entryPath.extension().string()) == ".lumaprefab" &&
+                             hovered &&
+                             ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) &&
+                             context.openAsset)
+                    {
+                        context.openAsset(entryPath, entryName);
+                    }
 
                     ImDrawList* drawList = ImGui::GetWindowDrawList();
                     const ImU32 borderColor = selected ? IM_COL32(70, 160, 255, 255) : IM_COL32(80, 80, 80, 255);
@@ -701,7 +740,12 @@ namespace Luma::Editor
 
                     if (ImGui::BeginPopupContextItem("ContentBrowserItemMenu"))
                     {
-                        if (MenuItemWithTooltip("Open", "Open this folder, scene, or asset."))
+                        const bool isPrefabAsset = !isDirectory && ToLowerString(entryPath.extension().string()) == ".lumaprefab";
+                        const char* openLabel = isPrefabAsset ? "Instantiate Prefab" : "Open";
+                        const char* openTooltip = isPrefabAsset
+                            ? "Instantiate this prefab into the active scene."
+                            : "Open this folder, scene, or asset.";
+                        if (MenuItemWithTooltip(openLabel, openTooltip))
                         {
                             if (isDirectory)
                             {
@@ -793,6 +837,16 @@ namespace Luma::Editor
                         context.createFolder();
                     }
                 }
+                if (MenuItemWithTooltip("New Script", "Create a new Lua script in the current directory."))
+                {
+                    std::snprintf(
+                        m_CreateScriptNameBuffer.data(),
+                        m_CreateScriptNameBuffer.size(),
+                        "%s",
+                        "NewScript");
+                    m_FocusCreateScriptName = true;
+                    requestCreateScriptPopup = true;
+                }
                 ImGui::EndMenu();
             }
 
@@ -802,6 +856,65 @@ namespace Luma::Editor
                 {
                     context.refresh();
                 }
+            }
+
+            ImGui::EndPopup();
+        }
+
+        if (requestCreateScriptPopup)
+        {
+            ImGui::OpenPopup("Create New Script");
+        }
+
+        bool closeCreateScriptPopup = false;
+        if (ImGui::BeginPopupModal("Create New Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextUnformatted("Create a Lua script in the current folder.");
+            std::string targetFolderLabel = activeRootLabel.empty() ? "Content" : activeRootLabel;
+            if (!currentRelativeString.empty())
+            {
+                targetFolderLabel += "/";
+                targetFolderLabel += currentRelativeString;
+            }
+            ImGui::TextDisabled("%s", targetFolderLabel.c_str());
+            ImGui::TextDisabled(".lua will be added automatically.");
+            ImGui::Spacing();
+
+            if (m_FocusCreateScriptName)
+            {
+                ImGui::SetKeyboardFocusHere();
+                m_FocusCreateScriptName = false;
+            }
+
+            const bool submitted = ImGui::InputTextWithHint(
+                "##NewScriptName",
+                "Script Name",
+                m_CreateScriptNameBuffer.data(),
+                m_CreateScriptNameBuffer.size(),
+                ImGuiInputTextFlags_EnterReturnsTrue);
+            ShowTooltip("Enter the new script file name. The engine will create a .lua file.");
+
+            ImGui::Spacing();
+
+            if (ImGui::Button("Create Script", ImVec2(120.0f, 0.0f)) || submitted)
+            {
+                const std::string requestedName = TrimString(m_CreateScriptNameBuffer.data());
+                if (context.createScript)
+                {
+                    context.createScript(requestedName);
+                }
+                closeCreateScriptPopup = true;
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(100.0f, 0.0f)))
+            {
+                closeCreateScriptPopup = true;
+            }
+
+            if (closeCreateScriptPopup)
+            {
+                ImGui::CloseCurrentPopup();
             }
 
             ImGui::EndPopup();

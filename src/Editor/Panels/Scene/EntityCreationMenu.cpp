@@ -98,6 +98,11 @@ namespace Luma::Editor
                 context.createTemplate(EntityTemplateKind::DirectionalLight, context.parentEntity);
             }
             ShowItemTooltip("Create a directional light entity.");
+            if (MenuItemWithTooltip("Point Light"))
+            {
+                context.createTemplate(EntityTemplateKind::PointLight, context.parentEntity);
+            }
+            ShowItemTooltip("Create a point light entity.");
             if (MenuItemWithTooltip("Sky Light"))
             {
                 context.createTemplate(EntityTemplateKind::SkyLight, context.parentEntity);
@@ -111,5 +116,11 @@ namespace Luma::Editor
             context.createTemplate(EntityTemplateKind::Player, context.parentEntity);
         }
         ShowItemTooltip("Create a default player entity template.");
+
+        if (MenuItemWithTooltip("Audio Source"))
+        {
+            context.createTemplate(EntityTemplateKind::AudioSource, context.parentEntity);
+        }
+        ShowItemTooltip("Create an audio source entity with an Audio Source component.");
     }
 }
