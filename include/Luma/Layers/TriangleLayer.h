@@ -36,6 +36,7 @@
 #include "Luma/Editor/Core/GameplayInputBindingService.h"
 #include "Luma/Editor/Core/EditorTickCoordinatorService.h"
 #include "Luma/Editor/Scene/EntityTemplateCreationService.h"
+#include "Luma/Editor/Scene/PrefabWorkflowService.h"
 #include "Luma/Editor/Scene/SceneEntityUtilityService.h"
 #include "Luma/Editor/Viewport/EditorViewportDebugOverlay.h"
 #include "Luma/Editor/Viewport/EditorViewportInteraction.h"
@@ -178,30 +179,13 @@ namespace Luma
             const std::filesystem::path& assetPath,
             EntityID parentEntity = entt::null,
             const std::array<float, 3>* worldPosition = nullptr);
-        std::filesystem::path BuildUniquePrefabAssetPath(std::string_view baseName) const;
-        EntityID FindPrefabInstanceRoot(EntityID entity) const;
-        void MarkPrefabInstanceHierarchy(EntityID rootEntity, const std::string& prefabAsset);
-        bool CreatePrefabFromEntity(EntityID rootEntity);
-        EntityID InstantiatePrefabAsset(const std::filesystem::path& prefabPath, EntityID parentEntity = entt::null);
-        bool ApplyPrefabInstance(EntityID entity);
-        bool RevertPrefabInstance(EntityID entity);
-        std::string GetPrefabInstanceStatus(EntityID entity);
-        std::vector<std::string> GetPrefabOverridePaths(EntityID entity);
-        bool RevertPrefabComponent(EntityID entity, std::string_view componentPath);
-        bool RevertPrefabOverridePath(EntityID entity, std::string_view overridePath);
-        void SelectPrefabAsset(EntityID entity);
-        std::filesystem::path ResolveMaterialAssetDirectory(const std::filesystem::path& fallbackDirectory = {}) const;
-        std::filesystem::path BuildUniqueMaterialAssetPath(
-            const std::filesystem::path& directory,
-            std::string_view baseName) const;
-        bool SaveMaterialAssetFile(
-            const std::filesystem::path& assetPath,
-            const MaterialComponent& material,
-            std::string& outError) const;
-        bool EnsureEntityMaterialAsset(
-            EntityID entity,
-            MaterialComponent& material,
-            std::string_view suggestedBaseName);
+        Editor::EntityTemplateCreationContext BuildEntityTemplateCreationContext();
+        Editor::MeshEntityImportContext BuildMeshEntityImportContext();
+        Editor::PrefabWorkflowContext BuildPrefabWorkflowContext();
+        Editor::InspectorHostContext BuildInspectorHostContext();
+        Editor::HierarchyPanelContext BuildHierarchyPanelContext();
+        Editor::ProjectSettingsPanelContext BuildProjectSettingsPanelContext();
+        Editor::PluginsPanelContext BuildPluginsPanelContext();
         void DrawViewportPanel();
         void DrawContentBrowserPanel();
         bool EnsureGizmoToolbarIconsLoaded();
@@ -212,6 +196,12 @@ namespace Luma
         EntityID FindEditorCameraEntity() const;
         void RebuildScenePrimitiveMesh();
         void MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags flags = Editor::SceneRenderCacheDirtyFlags::All);
+        Editor::MeshStreamingGeometryContext BuildMeshStreamingGeometryContext();
+        Editor::SceneRenderCacheBuildContext BuildSceneRenderCacheBuildContext(
+            bool collectRenderSources,
+            bool buildScenePrimitiveMesh,
+            bool buildSkyPrimitiveMesh);
+        Editor::RenderFrameCoordinatorContext BuildRenderFrameCoordinatorContext(IRenderBackend& renderer);
         const PrimitiveMeshData* ResolveMeshRendererGeometry(
             const TransformComponent& transform,
             const MeshRendererComponent& meshRenderer);
@@ -224,6 +214,29 @@ namespace Luma
         void AddConsoleLine(LogLevel level, std::string_view category, std::string_view message, std::string_view line);
         Editor::ConsoleCommandHostContext BuildConsoleCommandHostContext();
         Editor::ContentBrowserHostFacadeContext BuildContentBrowserHostFacadeContext();
+        Editor::PackageManagerHostFacadeContext BuildPackageManagerHostFacadeContext();
+        Editor::EditorTickCoordinatorContext BuildEditorTickCoordinatorContext(float deltaTimeSeconds);
+        Editor::SceneStartupHostContext BuildSceneStartupHostContext();
+        Editor::SceneDocumentHostContext BuildSceneDocumentHostContext();
+        Editor::SceneDocumentHostContext BuildSceneDocumentHostContext() const;
+        Editor::SceneActionHostContext BuildSceneActionHostContext();
+        Editor::SceneBootstrapContext BuildSceneBootstrapContext();
+        Editor::SceneBootstrapContext BuildSceneBootstrapContext() const;
+        Editor::SceneRenderItemAssemblyContext BuildSceneRenderItemAssemblyContext(
+            const std::vector<Editor::PendingSceneRenderSource>& pendingRenderSources,
+            std::uint64_t renderItemsStateHash);
+        bool TryBuildBakedLightmap(
+            EntityID entity,
+            const TransformComponent& transform,
+            const MeshRendererComponent& meshRenderer,
+            const PrimitiveMeshData& geometry,
+            const MaterialRenderProxy& material,
+            BakedLightmapData& outLightmap) const;
+        void RefreshContentBrowserRoots();
+        void RefreshContentBrowserEntries();
+        void RefreshContentBrowserTreeAndEntries();
+        void RefreshContentBrowserAll();
+        void OpenContentBrowserAsset(const std::filesystem::path& assetPath, const std::string& entryName);
         EntityID FindPrimarySkyEntity() const;
         void BuildBlendedPostProcessView(
             const std::array<float, 3>& cameraWorldPosition,
@@ -335,6 +348,7 @@ namespace Luma
         Editor::EditorTickCoordinatorService m_EditorTickCoordinatorService;
         Editor::EntityTemplateCreationService m_EntityTemplateCreationService;
         Editor::SceneEntityUtilityService m_SceneEntityUtilityService;
+        Editor::PrefabWorkflowService m_PrefabWorkflowService;
         Editor::ViewportAssetDropService m_ViewportAssetDropService;
         Editor::ConsolePanel m_ConsolePanel;
         Editor::EditorMenuBarPanel m_EditorMenuBarPanel;
@@ -428,17 +442,6 @@ namespace Luma
         std::filesystem::path m_PlaySelectedContentEntry;
         EntityID m_PlayGameCameraEntity = entt::null;
         LuaScriptRuntime m_LuaScriptRuntime;
-        EntityID m_PrefabStatusCacheRootEntity = entt::null;
-        std::string m_PrefabStatusCachePrefabAsset;
-        std::string m_PrefabStatusCacheValue;
-        float m_PrefabStatusCacheTimeSeconds = -1000.0f;
-        bool m_PrefabStatusCacheSceneDirty = false;
-        EntityID m_PrefabOverrideCacheEntity = entt::null;
-        std::string m_PrefabOverrideCachePrefabAsset;
-        UUID m_PrefabOverrideCacheSourceEntityId = 0;
-        std::vector<std::string> m_PrefabOverrideCacheValue;
-        float m_PrefabOverrideCacheTimeSeconds = -1000.0f;
-        bool m_PrefabOverrideCacheSceneDirty = false;
         void* m_SkyboxPreviewTexture = nullptr;
         int m_SkyboxPreviewWidth = 0;
         int m_SkyboxPreviewHeight = 0;

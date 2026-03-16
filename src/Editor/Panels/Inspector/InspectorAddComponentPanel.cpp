@@ -26,8 +26,8 @@
 #include "Luma/Scene/LuaScriptComponent.h"
 #include "Luma/Scene/MaterialComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
-#include "Luma/Scene/PhysicsEventsComponent.h"
 #include "Luma/Scene/PointLightComponent.h"
+#include "Luma/Scene/PhysicsEventsComponent.h"
 #include "Luma/Scene/PostProcessComponent.h"
 #include "Luma/Scene/RagdollComponent.h"
 #include "Luma/Scene/RigidBodyComponent.h"
@@ -337,7 +337,7 @@ namespace Luma::Editor
                     registry.emplace<PointLightComponent>(context.selectedEntity);
                     ImGui::CloseCurrentPopup();
                 }
-                ShowItemTooltip("Adds omni-directional local lighting.");
+                ShowItemTooltip("Adds omnidirectional local lighting.");
             }
 
             if (canAddSpot && matchesFilter("Spot Light"))

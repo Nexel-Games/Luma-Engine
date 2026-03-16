@@ -25,6 +25,7 @@ namespace Luma
         float lodFarDistance = 120.0f;
         bool streamSectionsByDistance = true;
         float sectionLoadDistance = 180.0f;
+        bool staticLighting = true;
         std::array<float, 4> color { 1.0f, 1.0f, 1.0f, 1.0f };
     };
 }

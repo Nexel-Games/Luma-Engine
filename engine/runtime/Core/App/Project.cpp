@@ -26,6 +26,12 @@ namespace Luma
             "GameController"
         };
 
+        constexpr std::array<std::string_view, 3> kDefaultProjectLayers = {
+            "Default",
+            "Ground",
+            "Water"
+        };
+
         std::string Trim(std::string value)
         {
             const auto isSpace = [](const char c)
@@ -169,11 +175,51 @@ namespace Luma
             tags = std::move(normalizedTags);
         }
 
+        void EnsureProjectLayers(std::vector<std::string>& layers)
+        {
+            std::vector<std::string> normalizedLayers;
+            normalizedLayers.reserve(layers.size() + kDefaultProjectLayers.size());
+
+            auto appendUnique = [&normalizedLayers](std::string layer)
+            {
+                layer = Trim(std::move(layer));
+                if (layer.empty())
+                {
+                    return;
+                }
+
+                const std::string lowered = ToLower(layer);
+                const bool exists = std::any_of(
+                    normalizedLayers.begin(),
+                    normalizedLayers.end(),
+                    [&lowered](const std::string& existing)
+                    {
+                        return ToLower(existing) == lowered;
+                    });
+                if (!exists && normalizedLayers.size() < 32u)
+                {
+                    normalizedLayers.push_back(std::move(layer));
+                }
+            };
+
+            for (const std::string_view defaultLayer : kDefaultProjectLayers)
+            {
+                appendUnique(std::string(defaultLayer));
+            }
+
+            for (std::string& layer : layers)
+            {
+                appendUnique(std::move(layer));
+            }
+
+            layers = std::move(normalizedLayers);
+        }
+
         void ApplyConfigDefaults(Project::ProjectConfig& config, std::string_view fallbackName, std::string_view fallbackTemplate)
         {
             if (config.schemaVersion == 0)
             {
-                config.schemaVersion = 4;
+                config.schemaVersion = 5;
             }
 
             if (config.name.empty())
@@ -202,6 +248,7 @@ namespace Luma
             }
 
             EnsureProjectTags(config.tags);
+            EnsureProjectLayers(config.layers);
 
             // Alpha builds ship OpenGL only. Keep parsing legacy "Auto" values,
             // but normalize saved configs to the backend that actually exists.
@@ -265,7 +312,7 @@ namespace Luma
     Project::ProjectConfig Project::DefaultConfig(const std::string_view name, const std::string_view templateName)
     {
         ProjectConfig config;
-        config.schemaVersion = 4;
+        config.schemaVersion = 5;
         config.name = std::string(name);
         config.engineVersion = "0.0.1";
         config.projectVersion = "0.1.0";
@@ -275,6 +322,7 @@ namespace Luma
         config.backend = BackendPreference::OpenGL;
         config.vsync = true;
         config.tags.assign(kDefaultProjectTags.begin(), kDefaultProjectTags.end());
+        config.layers.assign(kDefaultProjectLayers.begin(), kDefaultProjectLayers.end());
 
         config.build.activeProfile = BuildProfile::Development;
         config.build.debug = DefaultBuildProfileConfig(BuildProfile::Debug);
@@ -594,7 +642,11 @@ namespace Luma
         output << "VSync=" << (config.vsync ? "true" : "false") << '\n';
         for (std::size_t tagIndex = 0; tagIndex < config.tags.size(); ++tagIndex)
         {
-            output << "Layer." << tagIndex << '=' << config.tags[tagIndex] << '\n';
+            output << "Tag." << tagIndex << '=' << config.tags[tagIndex] << '\n';
+        }
+        for (std::size_t layerIndex = 0; layerIndex < config.layers.size(); ++layerIndex)
+        {
+            output << "Layer." << layerIndex << '=' << config.layers[layerIndex] << '\n';
         }
         for (const auto& plugin : config.plugins)
         {
@@ -633,6 +685,9 @@ namespace Luma
 
         ProjectConfig parsedConfig = DefaultConfig(file.stem().string(), "Blank Project");
         std::string line;
+        std::vector<std::string> parsedTags;
+        std::vector<std::string> parsedLayerEntries;
+        bool sawTagEntries = false;
 
         while (std::getline(input, line))
         {
@@ -681,9 +736,14 @@ namespace Luma
             {
                 ParseBool(value, parsedConfig.vsync);
             }
+            else if (key.rfind("Tag.", 0) == 0)
+            {
+                parsedTags.push_back(value);
+                sawTagEntries = true;
+            }
             else if (key.rfind("Layer.", 0) == 0)
             {
-                parsedConfig.tags.push_back(value);
+                parsedLayerEntries.push_back(value);
             }
             else if (key.rfind("Plugin.", 0) == 0)
             {
@@ -767,6 +827,16 @@ namespace Luma
                     profileConfig.defines = value;
                 }
             }
+        }
+
+        if (sawTagEntries)
+        {
+            parsedConfig.tags = std::move(parsedTags);
+            parsedConfig.layers = std::move(parsedLayerEntries);
+        }
+        else if (!parsedLayerEntries.empty())
+        {
+            parsedConfig.tags = std::move(parsedLayerEntries);
         }
 
         ApplyConfigDefaults(parsedConfig, file.stem().string(), "Blank Project");

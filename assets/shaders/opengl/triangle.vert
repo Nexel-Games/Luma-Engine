@@ -19,6 +19,7 @@ layout(std140, binding = 0) uniform PerDrawData
     vec4 materialParameters2;
     vec4 subsurfaceAndCoat;
     vec4 materialParameters3;
+    vec4 lightmapParams;
 } uPerDraw;
 
 out vec3 vColor;

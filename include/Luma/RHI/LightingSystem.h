@@ -25,6 +25,11 @@ namespace Luma
         std::array<float, 3> color { 1.0f, 1.0f, 1.0f };
         float intensity = 0.0f;
         float range = 1.0f;
+        float attenuation = 1.0f;
+        bool castsShadows = false;
+        bool softShadows = true;
+        float shadowBias = 0.0025f;
+        std::uint32_t shadowResolution = 512;
     };
 
     struct SpotLightDesc
@@ -90,6 +95,7 @@ namespace Luma
         static constexpr std::uint32_t kDefaultBinding = 4;
         static constexpr std::size_t kMaxPointLights = 4;
         static constexpr std::size_t kMaxSpotLights = 4;
+        static constexpr std::size_t kPointShadowFaceCount = 6;
         static std::uint32_t UniformBufferSize();
 
         bool Initialize(std::uint32_t descriptorBinding = kDefaultBinding);
@@ -101,6 +107,15 @@ namespace Luma
         void SetPointLights(const std::array<PointLightDesc, kMaxPointLights>& lights, std::size_t count);
         void SetSpotLights(const std::array<SpotLightDesc, kMaxSpotLights>& lights, std::size_t count);
         void SetDirectionalShadow(const std::array<float, 16>& matrix, bool enabled, float bias, float texelSize);
+        void SetPointShadow(
+            const std::array<std::array<float, 16>, kPointShadowFaceCount>& matrices,
+            const std::array<float, 4>& lightPositionRange,
+            bool enabled,
+            float bias,
+            bool softShadows,
+            float lightIndex,
+            float atlasInvWidth,
+            float atlasInvHeight);
         void SetSpotShadow(const std::array<float, 16>& matrix, bool enabled, float bias, float texelSize, float lightIndex);
         void SetImageBasedLight(const ImageBasedLightDesc& light);
         void SetPostProcess(const PostProcessDesc& postProcess);
@@ -146,8 +161,12 @@ namespace Luma
             float spotDirectionInner[kMaxSpotLights][4];
             float spotColorOuter[kMaxSpotLights][4];
             float directionalShadowMatrix[16];
+            float pointShadowMatrices[kPointShadowFaceCount][16];
             float spotShadowMatrix[16];
             float directionalShadowParams[4];
+            float pointShadowParams[4];
+            float pointShadowLightPositionRange[4];
+            float pointShadowAtlasInvSize[4];
             float spotShadowParams[4];
         };
 
@@ -172,6 +191,21 @@ namespace Luma
         bool m_DirectionalShadowEnabled = false;
         float m_DirectionalShadowBias = 0.0015f;
         float m_DirectionalShadowTexelSize = 1.0f / 1024.0f;
+        std::array<std::array<float, 16>, kPointShadowFaceCount> m_PointShadowMatrices {{
+            { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+            { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+            { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+            { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+            { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+            { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f }
+        }};
+        std::array<float, 4> m_PointShadowLightPositionRange { 0.0f, 0.0f, 0.0f, 1.0f };
+        bool m_PointShadowEnabled = false;
+        float m_PointShadowBias = 0.0025f;
+        bool m_PointShadowSoftShadows = true;
+        float m_PointShadowLightIndex = -1.0f;
+        float m_PointShadowAtlasInvWidth = 1.0f / 1536.0f;
+        float m_PointShadowAtlasInvHeight = 1.0f / 1024.0f;
         std::array<float, 16> m_SpotShadowMatrix {
             1.0f, 0.0f, 0.0f, 0.0f,
             0.0f, 1.0f, 0.0f, 0.0f,

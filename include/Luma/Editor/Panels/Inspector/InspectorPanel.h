@@ -68,6 +68,7 @@ namespace Luma::Editor
         InspectorMaterialPanel* materialPanel = nullptr;
         InspectorAddComponentPanel* addComponentPanel = nullptr;
         const std::vector<std::string>* availableTags = nullptr;
+        const std::vector<std::string>* availableLayers = nullptr;
         std::function<std::vector<std::filesystem::path>()> listContentRootPaths;
         std::function<bool(EntityID)> createPrefabFromEntity;
         std::function<bool(EntityID)> applyPrefabInstance;

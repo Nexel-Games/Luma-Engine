@@ -107,6 +107,7 @@ add_executable(
      src/Editor/Core/EditorTickCoordinatorService.cpp
      src/Editor/Scene/EntityTemplateCreationService.cpp
      src/Editor/Scene/SceneEntityUtilityService.cpp
+     src/Editor/Scene/PrefabWorkflowService.cpp
      src/Editor/Viewport/ViewportAssetDropService.cpp
      src/Editor/Panels/Console/CommandPalettePanel.cpp
      src/Editor/Panels/Console/ConsolePanel.cpp
@@ -183,6 +184,8 @@ add_executable(
     src/Layers/EditorLayer.cpp
     src/Layers/ProjectManagerLayer.cpp
     src/Layers/TriangleLayer.cpp
+    src/Layers/TriangleLayer.Rendering.cpp
+    src/Layers/TriangleLayer.SceneWorkflow.cpp
     engine/runtime/Scene/Scene.cpp
     engine/runtime/Scene/PrefabSerializer.cpp
     engine/runtime/Scene/SceneSerializer.cpp

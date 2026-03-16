@@ -1,6 +1,7 @@
 #version 450
 
 layout(location = 0) in vec2 vUV;
+layout(location = 1) in float vProjectedDepth;
 
 layout(set = 0, binding = 1) uniform sampler2D uOpacityTex;
 
@@ -22,9 +23,22 @@ layout(location = 0) out vec4 outColor;
 #define USE_DITHERED_LOD_TRANSITION_FROM_MATERIAL 0
 #endif
 
+#ifndef SHADOW_DEPTH_FROM_PROJECTED
+#define SHADOW_DEPTH_FROM_PROJECTED 0
+#endif
+
 float InterleavedGradientNoise(vec2 pixelPos)
 {
     return fract(52.9829189 * fract(0.06711056 * pixelPos.x + 0.00583715 * pixelPos.y));
+}
+
+float ComputeShadowDepth()
+{
+#if SHADOW_DEPTH_FROM_PROJECTED
+    return clamp(vProjectedDepth * 0.5 + 0.5, 0.0, 1.0);
+#else
+    return gl_FragCoord.z;
+#endif
 }
 
 void main()
@@ -42,6 +56,6 @@ void main()
         discard;
     }
 #endif
-    float depth = gl_FragCoord.z;
+    float depth = ComputeShadowDepth();
     outColor = vec4(depth, depth, depth, 1.0);
 }

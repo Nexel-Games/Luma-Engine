@@ -25,6 +25,7 @@ namespace Luma
         TagComponent tagComponent;
         tagComponent.name = name.empty() ? "Entity" : name;
         tagComponent.tag = "Untagged";
+        tagComponent.layer = "Default";
         m_Registry.emplace<TagComponent>(entity, std::move(tagComponent));
         m_Registry.emplace<TransformComponent>(entity);
         m_Registry.emplace<RelationshipComponent>(entity);

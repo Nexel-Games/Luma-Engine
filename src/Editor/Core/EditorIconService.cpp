@@ -126,6 +126,10 @@ namespace Luma::Editor
             std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/AssetIcons/CameraActor_16x.png"),
             std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/AssetIcons/CameraActor_16x.png")
         }, "Icons/AssetIcons/CameraActor_16x.png"));
+        m_Icons.pointLight = LoadIconFromCandidates(*renderer, BuildIconCandidates({
+            std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/AssetIcons/PointLight_16x.png"),
+            std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/AssetIcons/PointLight_16x.png")
+        }, "Icons/AssetIcons/PointLight_16x.png"));
         m_Icons.hierarchyCube = LoadIconFromCandidates(*renderer, BuildIconCandidates({
             std::filesystem::path("C:/Luma/thirdparty/editor-icons/imgs/Icons/icon_MatEd_Cube_40x.png"),
             std::filesystem::path("C:/Luma/LumaEngine/thirdparty/editor-icons/imgs/Icons/icon_MatEd_Cube_40x.png")
@@ -223,6 +227,7 @@ namespace Luma::Editor
         ReleaseIcon(renderer, m_Icons.hierarchyPanel);
         ReleaseIcon(renderer, m_Icons.hierarchyCreate);
         ReleaseIcon(renderer, m_Icons.hierarchyCamera);
+        ReleaseIcon(renderer, m_Icons.pointLight);
         ReleaseIcon(renderer, m_Icons.hierarchyCube);
         ReleaseIcon(renderer, m_Icons.hierarchyPlane);
         ReleaseIcon(renderer, m_Icons.hierarchySphere);
@@ -253,6 +258,7 @@ namespace Luma::Editor
             m_Icons.hierarchyPanel != nullptr ||
             m_Icons.hierarchyCreate != nullptr ||
             m_Icons.hierarchyCamera != nullptr ||
+            m_Icons.pointLight != nullptr ||
             m_Icons.hierarchyCube != nullptr ||
             m_Icons.hierarchyPlane != nullptr ||
             m_Icons.hierarchySphere != nullptr ||

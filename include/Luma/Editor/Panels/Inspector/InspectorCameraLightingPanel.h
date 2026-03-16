@@ -8,6 +8,7 @@ namespace Luma::Editor
     {
         Scene* scene = nullptr;
         EntityID selectedEntity = entt::null;
+        std::function<void()> markSceneRenderCacheDirty;
         std::function<void(std::string)> setContentStatus;
     };
 

@@ -18,6 +18,7 @@ namespace Luma::Editor
         EntityID selectedEntity = entt::null;
         std::function<std::vector<std::filesystem::path>()> listContentRoots;
         std::function<void(EntityID, PrimitiveType)> ensurePrimitiveCollider;
+        std::function<void()> markSceneRenderCacheDirty;
         std::function<void()> markSceneGeometryDirty;
         std::function<void()> markSceneMaterialsDirty;
     };

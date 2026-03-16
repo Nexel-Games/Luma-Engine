@@ -309,6 +309,7 @@ namespace Luma::Editor
         m_Draft = {};
         ClearInputCapture();
         m_NewTagName.clear();
+        m_NewLayerName.clear();
     }
 
     void ProjectSettingsPanel::InvalidateDraft()
@@ -807,6 +808,35 @@ namespace Luma::Editor
 
         SyncDraftFromLoaded();
 
+        const auto normalizeName = [](std::string value)
+        {
+            value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](unsigned char ch)
+            {
+                return !std::isspace(ch);
+            }));
+            value.erase(std::find_if(value.rbegin(), value.rend(), [](unsigned char ch)
+            {
+                return !std::isspace(ch);
+            }).base(), value.end());
+            return value;
+        };
+        const auto equalsIgnoreCase = [](const std::string& lhs, const std::string& rhs)
+        {
+            if (lhs.size() != rhs.size())
+            {
+                return false;
+            }
+            for (std::size_t i = 0; i < lhs.size(); ++i)
+            {
+                if (std::tolower(static_cast<unsigned char>(lhs[i])) !=
+                    std::tolower(static_cast<unsigned char>(rhs[i])))
+                {
+                    return false;
+                }
+            }
+            return true;
+        };
+
         ImGui::TextUnformatted("Entity Tags");
         ImGui::Separator();
         ImGui::TextWrapped("All new entities default to the Untagged tag. Add project-specific tags here for the entity inspector.");
@@ -822,16 +852,7 @@ namespace Luma::Editor
         ImGui::SameLine();
         if (ButtonWithTooltip("Add Tag"))
         {
-            auto normalized = m_NewTagName;
-            normalized.erase(normalized.begin(), std::find_if(normalized.begin(), normalized.end(), [](unsigned char ch)
-            {
-                return !std::isspace(ch);
-            }));
-            normalized.erase(std::find_if(normalized.rbegin(), normalized.rend(), [](unsigned char ch)
-            {
-                return !std::isspace(ch);
-            }).base(), normalized.end());
-
+            const std::string normalized = normalizeName(m_NewTagName);
             if (normalized.empty())
             {
                 if (context.setProjectConfigStatus)
@@ -844,21 +865,9 @@ namespace Luma::Editor
                 const auto exists = std::find_if(
                     m_Draft.tags.begin(),
                     m_Draft.tags.end(),
-                    [&normalized](const std::string& existing)
+                    [&normalized, &equalsIgnoreCase](const std::string& existing)
                     {
-                        if (existing.size() != normalized.size())
-                        {
-                            return false;
-                        }
-                        for (std::size_t i = 0; i < existing.size(); ++i)
-                        {
-                            if (std::tolower(static_cast<unsigned char>(existing[i])) !=
-                                std::tolower(static_cast<unsigned char>(normalized[i])))
-                            {
-                                return false;
-                            }
-                        }
-                        return true;
+                        return equalsIgnoreCase(existing, normalized);
                     });
                 if (exists != m_Draft.tags.end())
                 {
@@ -913,7 +922,7 @@ namespace Luma::Editor
                 }
                 else if (InputTextWithTooltip("##TagName", tagBuffer.data(), tagBuffer.size()))
                 {
-                    tag = tagBuffer.data();
+                    tag = normalizeName(tagBuffer.data());
                 }
 
                 ImGui::TableSetColumnIndex(1);
@@ -928,6 +937,127 @@ namespace Luma::Editor
                     if (context.setProjectConfigStatus)
                     {
                         context.setProjectConfigStatus("Removed tag: " + removedTag);
+                    }
+                    ImGui::PopID();
+                    break;
+                }
+
+                ImGui::PopID();
+            }
+
+            ImGui::EndTable();
+        }
+
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Entity Layers");
+        ImGui::Separator();
+        ImGui::TextWrapped("Layers drive named culling masks. 'Everything' is always available as a built-in mask option, while project layers below map to the individual bits.");
+
+        std::vector<char> newLayerBuffer(128, '\0');
+        std::snprintf(newLayerBuffer.data(), newLayerBuffer.size(), "%s", m_NewLayerName.c_str());
+        if (InputTextWithTooltip("New Layer", newLayerBuffer.data(), newLayerBuffer.size()))
+        {
+            m_NewLayerName = newLayerBuffer.data();
+        }
+        ShowItemTooltip("Enter a new project layer name.");
+
+        ImGui::SameLine();
+        if (ButtonWithTooltip("Add Layer"))
+        {
+            const std::string normalized = normalizeName(m_NewLayerName);
+            if (normalized.empty())
+            {
+                if (context.setProjectConfigStatus)
+                {
+                    context.setProjectConfigStatus("Layer name cannot be empty.");
+                }
+            }
+            else if (m_Draft.layers.size() >= 32u)
+            {
+                if (context.setProjectConfigStatus)
+                {
+                    context.setProjectConfigStatus("Maximum layer count reached (32).");
+                }
+            }
+            else
+            {
+                const auto exists = std::find_if(
+                    m_Draft.layers.begin(),
+                    m_Draft.layers.end(),
+                    [&normalized, &equalsIgnoreCase](const std::string& existing)
+                    {
+                        return equalsIgnoreCase(existing, normalized);
+                    });
+                if (exists != m_Draft.layers.end())
+                {
+                    if (context.setProjectConfigStatus)
+                    {
+                        context.setProjectConfigStatus("Layer already exists: " + normalized);
+                    }
+                }
+                else
+                {
+                    m_Draft.layers.push_back(normalized);
+                    m_NewLayerName.clear();
+                    if (context.setProjectConfigStatus)
+                    {
+                        context.setProjectConfigStatus("Added layer: " + normalized);
+                    }
+                }
+            }
+        }
+        ShowItemTooltip("Add a new named layer to this project.");
+
+        ImGui::Spacing();
+        if (ImGui::BeginTable("ProjectLayersTable", 3, tableFlags))
+        {
+            ImGui::TableSetupColumn("Bit", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("Layer", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+            ImGui::TableHeadersRow();
+
+            constexpr std::array<std::string_view, 3> defaultLayers = {
+                "Default",
+                "Ground",
+                "Water"
+            };
+
+            for (std::size_t layerIndex = 0; layerIndex < m_Draft.layers.size(); ++layerIndex)
+            {
+                std::string& layer = m_Draft.layers[layerIndex];
+                ImGui::TableNextRow();
+                ImGui::PushID(static_cast<int>(layerIndex + 1000));
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("%u", static_cast<unsigned int>(layerIndex));
+
+                ImGui::TableSetColumnIndex(1);
+                std::vector<char> layerBuffer(128, '\0');
+                std::snprintf(layerBuffer.data(), layerBuffer.size(), "%s", layer.c_str());
+                const bool isDefaultLayer = std::find(defaultLayers.begin(), defaultLayers.end(), std::string_view(layer)) != defaultLayers.end();
+                if (isDefaultLayer)
+                {
+                    ImGui::TextUnformatted(layer.c_str());
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(Default)");
+                }
+                else if (InputTextWithTooltip("##LayerName", layerBuffer.data(), layerBuffer.size()))
+                {
+                    layer = normalizeName(layerBuffer.data());
+                }
+
+                ImGui::TableSetColumnIndex(2);
+                if (isDefaultLayer)
+                {
+                    ImGui::TextDisabled("Locked");
+                }
+                else if (SmallButtonWithTooltip("Remove"))
+                {
+                    const std::string removedLayer = layer;
+                    m_Draft.layers.erase(m_Draft.layers.begin() + static_cast<std::ptrdiff_t>(layerIndex));
+                    if (context.setProjectConfigStatus)
+                    {
+                        context.setProjectConfigStatus("Removed layer: " + removedLayer);
                     }
                     ImGui::PopID();
                     break;
@@ -959,7 +1089,7 @@ namespace Luma::Editor
                 context.setProjectConfigStatus("Failed to save project settings.");
             }
         }
-        ShowItemTooltip("Save the current tag list to the project file.");
+        ShowItemTooltip("Save the current tag and layer lists to the project file.");
 
         ImGui::SameLine();
         if (ButtonWithTooltip("Reload"))
@@ -971,7 +1101,7 @@ namespace Luma::Editor
                 context.setProjectConfigStatus("Project settings reloaded.");
             }
         }
-        ShowItemTooltip("Reload tags from disk and discard unsaved changes.");
+        ShowItemTooltip("Reload tags and layers from disk and discard unsaved changes.");
 
         const std::string_view configStatus = context.getProjectConfigStatus ? context.getProjectConfigStatus() : std::string_view {};
         if (!configStatus.empty())

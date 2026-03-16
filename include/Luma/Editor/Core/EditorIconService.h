@@ -19,6 +19,7 @@ namespace Luma
             void* hierarchyPanel = nullptr;
             void* hierarchyCreate = nullptr;
             void* hierarchyCamera = nullptr;
+            void* pointLight = nullptr;
             void* hierarchyCube = nullptr;
             void* hierarchyPlane = nullptr;
             void* hierarchySphere = nullptr;

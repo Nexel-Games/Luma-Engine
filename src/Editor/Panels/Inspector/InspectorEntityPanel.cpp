@@ -366,6 +366,52 @@ namespace Luma::Editor
             }
         }
 
+        std::vector<const char*> layerLabels;
+        int selectedLayerIndex = 0;
+        if (context.availableLayers != nullptr && !context.availableLayers->empty())
+        {
+            layerLabels.reserve(context.availableLayers->size() + 1);
+            bool foundCurrentLayer = false;
+            for (std::size_t i = 0; i < context.availableLayers->size(); ++i)
+            {
+                layerLabels.push_back((*context.availableLayers)[i].c_str());
+                if ((*context.availableLayers)[i] == tag.layer)
+                {
+                    selectedLayerIndex = static_cast<int>(i);
+                    foundCurrentLayer = true;
+                }
+            }
+
+            if (!foundCurrentLayer)
+            {
+                layerLabels.push_back(tag.layer.c_str());
+                selectedLayerIndex = static_cast<int>(layerLabels.size() - 1);
+            }
+
+            if (ComboWithTooltip("Layer", &selectedLayerIndex, layerLabels.data(), static_cast<int>(layerLabels.size())))
+            {
+                selectedLayerIndex = std::clamp(selectedLayerIndex, 0, static_cast<int>(layerLabels.size()) - 1);
+                tag.layer = layerLabels[static_cast<std::size_t>(selectedLayerIndex)];
+                if (context.markSceneRenderCacheDirty)
+                {
+                    context.markSceneRenderCacheDirty();
+                }
+            }
+        }
+        else
+        {
+            std::array<char, 128> layerBuffer {};
+            std::snprintf(layerBuffer.data(), layerBuffer.size(), "%s", tag.layer.c_str());
+            if (InputTextWithTooltip("Layer", layerBuffer.data(), layerBuffer.size()))
+            {
+                tag.layer = layerBuffer[0] != '\0' ? layerBuffer.data() : "Default";
+                if (context.markSceneRenderCacheDirty)
+                {
+                    context.markSceneRenderCacheDirty();
+                }
+            }
+        }
+
         ImGui::Separator();
         bool transformChanged = false;
         transformChanged |= DragFloat3WithTooltip("Position", transform.position.data(), 0.05f);
@@ -374,6 +420,10 @@ namespace Luma::Editor
         if (transformChanged)
         {
             transform.dirty = true;
+            if (context.markSceneRenderCacheDirty)
+            {
+                context.markSceneRenderCacheDirty();
+            }
         }
 
         ImGui::Spacing();

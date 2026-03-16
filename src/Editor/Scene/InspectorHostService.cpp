@@ -46,6 +46,7 @@ namespace Luma::Editor
             context.materialPanel,
             context.addComponentPanel,
             context.availableTags,
+            context.availableLayers,
             [this, contentRoots = context.contentRoots]()
             {
                 return ListContentRootPaths(contentRoots);

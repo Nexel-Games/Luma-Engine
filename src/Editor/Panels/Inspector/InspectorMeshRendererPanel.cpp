@@ -274,6 +274,13 @@ namespace Luma::Editor
             {
                 materialsDirty = true;
             }
+            if (CheckboxWithTooltip("Static Lighting", &meshRenderer.staticLighting))
+            {
+                if (context.markSceneRenderCacheDirty)
+                {
+                    context.markSceneRenderCacheDirty();
+                }
+            }
             if (geometryDirty && context.markSceneGeometryDirty)
             {
                 context.markSceneGeometryDirty();

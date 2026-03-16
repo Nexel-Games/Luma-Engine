@@ -98,6 +98,11 @@ namespace Luma::Editor
                 context.createTemplate(EntityTemplateKind::DirectionalLight, context.parentEntity);
             }
             ShowItemTooltip("Create a directional light entity.");
+            if (MenuItemWithTooltip("Point Light"))
+            {
+                context.createTemplate(EntityTemplateKind::PointLight, context.parentEntity);
+            }
+            ShowItemTooltip("Create a point light entity.");
             if (MenuItemWithTooltip("Sky Light"))
             {
                 context.createTemplate(EntityTemplateKind::SkyLight, context.parentEntity);

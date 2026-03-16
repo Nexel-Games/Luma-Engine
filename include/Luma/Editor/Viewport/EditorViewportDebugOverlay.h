@@ -17,6 +17,7 @@ namespace Luma::Editor
         ImVec2 viewportMin { 0.0f, 0.0f };
         ImVec2 renderAreaSize { 0.0f, 0.0f };
         EntityID lensSourceEntity = entt::null;
+        void* pointLightIconTexture = nullptr;
     };
 
     class EditorViewportDebugOverlay

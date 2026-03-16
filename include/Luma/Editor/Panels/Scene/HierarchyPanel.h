@@ -14,6 +14,7 @@ namespace Luma::Editor
         void* panelIconTexture = nullptr;
         void* createIconTexture = nullptr;
         void* cameraIconTexture = nullptr;
+        void* pointLightIconTexture = nullptr;
         void* cubeIconTexture = nullptr;
         void* planeIconTexture = nullptr;
         void* sphereIconTexture = nullptr;

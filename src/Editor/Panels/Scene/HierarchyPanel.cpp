@@ -15,6 +15,7 @@
 #include "Luma/Scene/DirectionalLightComponent.h"
 #include "Luma/Scene/IDComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
+#include "Luma/Scene/PointLightComponent.h"
 #include "Luma/Scene/RelationshipComponent.h"
 #include "Luma/Scene/RigidBodyComponent.h"
 #include "Luma/Scene/SkyLightComponent.h"
@@ -132,6 +133,10 @@ namespace Luma::Editor
             {
                 return { "[D]", ImVec4(0.95f, 0.86f, 0.46f, 1.0f) };
             }
+            if (registry.all_of<PointLightComponent>(entity))
+            {
+                return { "[L]", ImVec4(1.0f, 0.90f, 0.68f, 1.0f) };
+            }
             if (registry.all_of<SkyLightComponent>(entity))
             {
                 return { "[S]", ImVec4(0.56f, 0.70f, 0.98f, 1.0f) };
@@ -182,6 +187,10 @@ namespace Luma::Editor
             if (registry.all_of<CameraComponent>(entity))
             {
                 return context.cameraIconTexture;
+            }
+            if (registry.all_of<PointLightComponent>(entity))
+            {
+                return context.pointLightIconTexture;
             }
 
             const MeshRendererComponent* meshRenderer = registry.try_get<MeshRendererComponent>(entity);

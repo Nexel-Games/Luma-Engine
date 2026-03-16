@@ -55,5 +55,6 @@ namespace Luma::Editor
         std::string m_SelectedVehicleInputMap = "Vehicle.Default";
         std::string m_NewVehicleInputMapName {};
         std::string m_NewTagName {};
+        std::string m_NewLayerName {};
     };
 }

@@ -8,5 +8,6 @@ namespace Luma
     {
         std::string name = "Entity";
         std::string tag = "Untagged";
+        std::string layer = "Default";
     };
 }

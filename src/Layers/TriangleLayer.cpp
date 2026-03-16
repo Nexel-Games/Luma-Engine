@@ -48,7 +48,6 @@
 #include "Luma/Scene/ColliderComponent.h"
 #include "Luma/Scene/D6JointComponent.h"
 #include "Luma/Scene/DirectionalLightComponent.h"
-#include "Luma/Scene/PointLightComponent.h"
 #include "Luma/Scene/PostProcessComponent.h"
 #include "Luma/Scene/FixedJointComponent.h"
 #include "Luma/Scene/ForceFieldComponent.h"
@@ -58,8 +57,6 @@
 #include "Luma/Scene/MaterialComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
 #include "Luma/Scene/BuoyancyComponent.h"
-#include "Luma/Scene/PrefabInstanceComponent.h"
-#include "Luma/Scene/PrefabSerializer.h"
 #include "Luma/Scene/PhysicsEventsComponent.h"
 #include "Luma/Scene/RagdollComponent.h"
 #include "Luma/Scene/RelationshipComponent.h"
@@ -69,7 +66,6 @@
 #include "Luma/Scene/SpotLightComponent.h"
 #include "Luma/Scene/TagComponent.h"
 #include "Luma/Scene/TransformComponent.h"
-#include "Luma/Scene/SceneSerializer.h"
 #include "Luma/Scene/VehicleComponent.h"
 #include "Luma/Scene/WheelColliderComponent.h"
 
@@ -114,86 +110,6 @@ namespace Luma
             value.erase(value.begin(), std::find_if(value.begin(), value.end(), notWhitespace));
             value.erase(std::find_if(value.rbegin(), value.rend(), notWhitespace).base(), value.end());
             return value;
-        }
-
-        std::filesystem::path NormalizePathForComparison(const std::filesystem::path& path)
-        {
-            if (path.empty())
-            {
-                return {};
-            }
-
-            std::error_code ec;
-            std::filesystem::path normalized = std::filesystem::weakly_canonical(path, ec);
-            if (ec)
-            {
-                normalized = path.lexically_normal();
-            }
-            return normalized.lexically_normal();
-        }
-
-        bool PathIsWithinRoot(const std::filesystem::path& path, const std::filesystem::path& root)
-        {
-            if (path.empty() || root.empty())
-            {
-                return false;
-            }
-
-            std::string normalizedPath = NormalizePathForComparison(path).generic_string();
-            std::string normalizedRoot = NormalizePathForComparison(root).generic_string();
-#if defined(_WIN32)
-            normalizedPath = ToLowerString(normalizedPath);
-            normalizedRoot = ToLowerString(normalizedRoot);
-#endif
-            if (normalizedPath.size() < normalizedRoot.size())
-            {
-                return false;
-            }
-            if (normalizedPath.compare(0, normalizedRoot.size(), normalizedRoot) != 0)
-            {
-                return false;
-            }
-            if (normalizedPath.size() == normalizedRoot.size())
-            {
-                return true;
-            }
-
-            const char separator = normalizedPath[normalizedRoot.size()];
-            return separator == '/' || separator == '\\';
-        }
-
-        std::string SanitizeFileStem(std::string value)
-        {
-            value = TrimCopy(std::move(value));
-            if (value.empty())
-            {
-                return "NewPrefab";
-            }
-
-            for (char& character : value)
-            {
-                const unsigned char code = static_cast<unsigned char>(character);
-                if (code < 32 ||
-                    character == '<' ||
-                    character == '>' ||
-                    character == ':' ||
-                    character == '"' ||
-                    character == '/' ||
-                    character == '\\' ||
-                    character == '|' ||
-                    character == '?' ||
-                    character == '*')
-                {
-                    character = '_';
-                }
-            }
-
-            while (!value.empty() && (value.back() == ' ' || value.back() == '.'))
-            {
-                value.pop_back();
-            }
-
-            return value.empty() ? "NewPrefab" : value;
         }
 
         constexpr float kDegreesToRadians = 3.14159265359f / 180.0f;
@@ -246,243 +162,6 @@ namespace Luma
 
             const float invLength = 1.0f / std::sqrt(lengthSquared);
             return { value[0] * invLength, value[1] * invLength, value[2] * invLength };
-        }
-
-        const nlohmann::json* FindEntityJsonByUuid(const nlohmann::json& root, const UUID uuid)
-        {
-            const auto entitiesIt = root.find("entities");
-            if (entitiesIt == root.end() || !entitiesIt->is_array())
-            {
-                return nullptr;
-            }
-
-            for (const auto& entityJson : *entitiesIt)
-            {
-                if (entityJson.is_object() && entityJson.value("uuid", static_cast<UUID>(0)) == uuid)
-                {
-                    return &entityJson;
-                }
-            }
-
-            return nullptr;
-        }
-
-        void CollectJsonDifferencePaths(
-            const nlohmann::json& source,
-            const nlohmann::json& current,
-            const std::string& pathPrefix,
-            std::vector<std::string>& outPaths)
-        {
-            if (source.type() != current.type())
-            {
-                outPaths.push_back(pathPrefix);
-                return;
-            }
-
-            if (source.is_object())
-            {
-                std::vector<std::string> keys;
-                keys.reserve(source.size() + current.size());
-                for (auto it = source.begin(); it != source.end(); ++it)
-                {
-                    keys.push_back(it.key());
-                }
-                for (auto it = current.begin(); it != current.end(); ++it)
-                {
-                    if (std::find(keys.begin(), keys.end(), it.key()) == keys.end())
-                    {
-                        keys.push_back(it.key());
-                    }
-                }
-
-                std::sort(keys.begin(), keys.end());
-                for (const std::string& key : keys)
-                {
-                    if (key == "uuid" || key == "parent" || key == "prefabInstance")
-                    {
-                        continue;
-                    }
-
-                    const auto sourceIt = source.find(key);
-                    const auto currentIt = current.find(key);
-                    const std::string childPath = pathPrefix.empty() ? key : (pathPrefix + "." + key);
-                    if (sourceIt == source.end() || currentIt == current.end())
-                    {
-                        outPaths.push_back((sourceIt == source.end() ? "+" : "-") + childPath);
-                        continue;
-                    }
-
-                    CollectJsonDifferencePaths(*sourceIt, *currentIt, childPath, outPaths);
-                }
-                return;
-            }
-
-            if (source.is_array())
-            {
-                if (source.size() != current.size())
-                {
-                    outPaths.push_back(pathPrefix);
-                    return;
-                }
-
-                for (std::size_t index = 0; index < source.size(); ++index)
-                {
-                    const std::string childPath = pathPrefix + "[" + std::to_string(index) + "]";
-                    CollectJsonDifferencePaths(source[index], current[index], childPath, outPaths);
-                }
-                return;
-            }
-
-            if (source != current)
-            {
-                outPaths.push_back(pathPrefix);
-            }
-        }
-
-        std::string StripPrefabOverridePrefix(const std::string_view path)
-        {
-            if (!path.empty() && (path.front() == '+' || path.front() == '-'))
-            {
-                return std::string(path.substr(1));
-            }
-            return std::string(path);
-        }
-
-        std::string EscapeJsonPointerToken(const std::string_view token)
-        {
-            std::string escaped;
-            escaped.reserve(token.size());
-            for (const char character : token)
-            {
-                if (character == '~')
-                {
-                    escaped += "~0";
-                }
-                else if (character == '/')
-                {
-                    escaped += "~1";
-                }
-                else
-                {
-                    escaped += character;
-                }
-            }
-            return escaped;
-        }
-
-        std::vector<std::string> ParseOverridePathTokens(const std::string_view path)
-        {
-            std::vector<std::string> tokens;
-            std::string current;
-            for (std::size_t index = 0; index < path.size(); ++index)
-            {
-                const char character = path[index];
-                if (character == '.')
-                {
-                    if (!current.empty())
-                    {
-                        tokens.push_back(std::move(current));
-                        current.clear();
-                    }
-                    continue;
-                }
-
-                if (character == '[')
-                {
-                    if (!current.empty())
-                    {
-                        tokens.push_back(std::move(current));
-                        current.clear();
-                    }
-
-                    ++index;
-                    std::string indexToken;
-                    while (index < path.size() && path[index] != ']')
-                    {
-                        indexToken += path[index];
-                        ++index;
-                    }
-                    if (!indexToken.empty())
-                    {
-                        tokens.push_back(std::move(indexToken));
-                    }
-                    continue;
-                }
-
-                current += character;
-            }
-
-            if (!current.empty())
-            {
-                tokens.push_back(std::move(current));
-            }
-
-            return tokens;
-        }
-
-        nlohmann::json::json_pointer BuildJsonPointer(const std::vector<std::string>& tokens)
-        {
-            std::string pointerValue;
-            for (const std::string& token : tokens)
-            {
-                pointerValue += "/";
-                pointerValue += EscapeJsonPointerToken(token);
-            }
-            return nlohmann::json::json_pointer(pointerValue);
-        }
-
-        bool JsonPointerExists(const nlohmann::json& object, const nlohmann::json::json_pointer& pointer)
-        {
-            try
-            {
-                object.at(pointer);
-                return true;
-            }
-            catch (const std::exception&)
-            {
-                return false;
-            }
-        }
-
-        bool EraseJsonPath(nlohmann::json& object, const std::vector<std::string>& tokens)
-        {
-            if (tokens.empty())
-            {
-                return false;
-            }
-            if (tokens.size() == 1)
-            {
-                if (!object.is_object())
-                {
-                    return false;
-                }
-                return object.erase(tokens.front()) > 0;
-            }
-
-            std::vector<std::string> parentTokens(tokens.begin(), tokens.end() - 1);
-            const nlohmann::json::json_pointer parentPointer = BuildJsonPointer(parentTokens);
-            if (!JsonPointerExists(object, parentPointer))
-            {
-                return false;
-            }
-
-            nlohmann::json& parent = object[parentPointer];
-            const std::string& lastToken = tokens.back();
-            if (parent.is_object())
-            {
-                return parent.erase(lastToken) > 0;
-            }
-            if (parent.is_array())
-            {
-                const int index = std::atoi(lastToken.c_str());
-                if (index < 0 || static_cast<std::size_t>(index) >= parent.size())
-                {
-                    return false;
-                }
-                parent.erase(parent.begin() + index);
-                return true;
-            }
-            return false;
         }
 
         std::string TruncateMiddle(const std::string_view value, const std::size_t maxLength)
@@ -775,11 +454,12 @@ namespace Luma
             const MaterialComponent& material,
             const std::filesystem::path& sourcePath)
         {
-            MaterialRenderProxy proxy;
-            proxy.sourcePath = sourcePath;
-            proxy.name = material.name;
-            proxy.blendMode = ResolveMaterialBlendMode(material.renderingMode);
-            proxy.baseColor = material.albedoColor;
+        MaterialRenderProxy proxy;
+        proxy.sourcePath = sourcePath;
+        proxy.name = material.name;
+        proxy.blendMode = ResolveMaterialBlendMode(material.renderingMode);
+        proxy.globalIlluminationMode = static_cast<std::uint32_t>(material.globalIllumination);
+        proxy.baseColor = material.albedoColor;
             proxy.emissiveColor = material.emissionColor;
             proxy.emissiveIntensity = material.emissionEnabled ? material.emissionIntensity : 0.0f;
             proxy.metallic = material.metallic;
@@ -2169,28 +1849,7 @@ namespace Luma
     void TriangleLayer::OnAttach()
     {
         const std::filesystem::path startupScenePath = GetDefaultScenePath();
-        Editor::SceneStartupHostContext startupContext {};
-        startupContext.scene = &m_Scene;
-        startupContext.sceneDocument = &m_SceneDocument;
-        startupContext.contentStatus = &m_EditorStatus.Content();
-        startupContext.selectedContentEntry = &m_SelectedContentEntry;
-        startupContext.projectLoaded = Project::IsLoaded();
-        startupContext.loadSceneFromPath = [this](const std::filesystem::path& scenePath) -> bool
-        {
-            return LoadSceneFromPath(scenePath);
-        };
-        startupContext.seedDefaultSceneEntities = [this]()
-        {
-            SeedDefaultSceneEntities();
-        };
-        startupContext.refreshWindowTitle = [this]()
-        {
-            RefreshWindowTitle();
-        };
-        startupContext.updateWorldTransforms = [this]()
-        {
-            m_Scene.UpdateWorldTransforms();
-        };
+        Editor::SceneStartupHostContext startupContext = BuildSceneStartupHostContext();
         m_SceneStartupHostService.Bootstrap(startupContext, startupScenePath);
 
         m_GameplayInputBindingService.ConfigureEditorGameplayDefaults();
@@ -2263,23 +1922,7 @@ namespace Luma
         }
 
         {
-            m_PackageManagerHostFacadeService.Initialize({
-                &m_PackageManagerHostService,
-                &m_PackageManagerPanel,
-                Project::IsLoaded(),
-                Project::IsLoaded() ? &Project::GetProjectRoot() : nullptr,
-                &m_ShowPackageManagerPanel,
-                [this]()
-                {
-                    Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-                    m_ContentBrowserHostFacadeService.RefreshRoots(contentBrowserContext);
-                },
-                [this]()
-                {
-                    Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-                    m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
-                }
-            });
+            m_PackageManagerHostFacadeService.Initialize(BuildPackageManagerHostFacadeContext());
         }
 
         LUMA_LOG_INFO("Editor", "Console initialized. Open Window > Console for palette/console/tasks.");
@@ -2322,13 +1965,7 @@ namespace Luma
         m_MaterialRenderProxyCacheService.Clear();
         m_ImportPipeline.reset();
         m_AssetPipelineInitialized = false;
-        m_PackageManagerHostFacadeService.Shutdown({
-            &m_PackageManagerHostService,
-            &m_PackageManagerPanel,
-            Project::IsLoaded(),
-            Project::IsLoaded() ? &Project::GetProjectRoot() : nullptr,
-            &m_ShowPackageManagerPanel
-        });
+        m_PackageManagerHostFacadeService.Shutdown(BuildPackageManagerHostFacadeContext());
         m_PhysicsSystem.Shutdown();
         m_LastRenderer = nullptr;
         m_DockLayoutInitialized = false;
@@ -2351,83 +1988,12 @@ namespace Luma
             UpdateSceneAudioRuntime();
         }
 
-        Editor::EditorTickCoordinatorContext tickContext {};
-        tickContext.deltaTimeSeconds = deltaTimeSeconds;
-        tickContext.timeSeconds = &m_Time;
-        tickContext.lastDeltaTimeSeconds = &m_LastDeltaTimeSeconds;
-        tickContext.renderer = m_LastRenderer;
-        tickContext.showContentBrowserPanel = m_ShowContentBrowserPanel;
-        tickContext.contentBrowserCache = &m_ContentBrowserCache;
-        tickContext.lastContentBrowserTickMs = &m_LastContentBrowserTickMs;
-        tickContext.resourceStreamingService = &m_ResourceStreamingService;
-        tickContext.lastStreamingTickMs = &m_LastStreamingTickMs;
-        tickContext.physicsSystem = &m_PhysicsSystem;
-        tickContext.physicsSimulationEnabled = IsSceneSimulationEnabled();
-        tickContext.scene = &m_Scene;
-        tickContext.sceneDocument = &m_SceneDocument;
-        tickContext.pruneEntitySelection = [this]()
-        {
-            m_SceneEntityUtilityService.PruneEntitySelection(m_Scene, m_SelectionState);
-        };
-        tickContext.tickPackageManager = [this]()
-        {
-            m_PackageManagerHostFacadeService.Tick({
-                &m_PackageManagerHostService,
-                &m_PackageManagerPanel,
-                Project::IsLoaded(),
-                Project::IsLoaded() ? &Project::GetProjectRoot() : nullptr,
-                &m_ShowPackageManagerPanel,
-                [this]()
-                {
-                    Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-                    m_ContentBrowserHostFacadeService.RefreshRoots(contentBrowserContext);
-                },
-                [this]()
-                {
-                    Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-                    m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
-                }
-            });
-        };
-        tickContext.pumpContentFolderTreeRebuild = [this]()
-        {
-            Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-            m_ContentBrowserHostFacadeService.PumpContentFolderTreeRebuild(contentBrowserContext);
-        };
-        tickContext.pumpContentEntriesRefresh = [this]()
-        {
-            Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-            m_ContentBrowserHostFacadeService.PumpContentEntriesRefresh(contentBrowserContext);
-        };
-        tickContext.tickContentImportQueue = [this]()
-        {
-            TickContentImportQueue();
-        };
-        tickContext.updateStreamingTaskState = [this]()
-        {
-            UpdateStreamingTaskState();
-        };
-        tickContext.updateConsoleTasks = [this](const float tickDeltaTimeSeconds)
-        {
-            UpdateConsoleTasks(tickDeltaTimeSeconds);
-        };
-        tickContext.markSceneRenderCacheDirty = [this]()
-        {
-            MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::Geometry);
-        };
-        tickContext.updateSceneDirtyState = [this]()
-        {
-            UpdateSceneDirtyState();
-        };
-
+        Editor::EditorTickCoordinatorContext tickContext = BuildEditorTickCoordinatorContext(deltaTimeSeconds);
         m_EditorTickCoordinatorService.Tick(tickContext);
 
         if (Project::IsLoaded() && m_ContentRootWatchService.Poll(m_ContentRoots, deltaTimeSeconds))
         {
-            Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-            m_ContentBrowserHostFacadeService.RefreshRoots(contentBrowserContext);
-            m_ContentBrowserHostFacadeService.InvalidateFolderTreeCache(contentBrowserContext);
-            m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
+            RefreshContentBrowserAll();
             m_EditorStatus.Content() = "Detected external content changes. Refreshed Content Browser.";
         }
 
@@ -2463,8 +2029,7 @@ namespace Luma
             },
             [this]()
             {
-                Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-                m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
+                RefreshContentBrowserEntries();
             },
             [this](std::string status)
             {
@@ -2488,94 +2053,57 @@ namespace Luma
         m_RenderSceneCacheDirtyFlags |= flags;
     }
 
-    void TriangleLayer::OnRender(IRenderBackend& renderer)
+    Editor::SceneRenderCacheBuildContext TriangleLayer::BuildSceneRenderCacheBuildContext(
+        const bool collectRenderSources,
+        const bool buildScenePrimitiveMesh,
+        const bool buildSkyPrimitiveMesh)
     {
-        Editor::RenderFrameCoordinatorContext renderContext {};
-        renderContext.renderer = &renderer;
-        renderContext.lastRenderer = &m_LastRenderer;
-        renderContext.gpuResourceManager = &m_GPUResourceManager;
-        renderContext.activePipeline = &m_ActivePipeline;
-        renderContext.activeProfile = &m_ActiveProfile;
-        renderContext.desiredProfile =
-            Project::IsLoaded() ? Project::GetConfig().pipeline : RenderPipelineProfile::CoreLite;
-        renderContext.streamingService = &m_ResourceStreamingService;
-        renderContext.scene = &m_Scene;
-        renderContext.viewportController = &m_ViewportController;
-        renderContext.activeCameraEntity = IsPlayModeActive() ? EnsurePlayModeGameCameraEntity() : entt::null;
-        renderContext.selectedEntity = m_SelectedEntity;
-        renderContext.timeSeconds = m_Time;
-        renderContext.skyMesh = &m_SkyPrimitiveMeshDesc;
-        renderContext.skyMeshRevision = m_SkyPrimitiveMeshRevision;
-        renderContext.hasSkyMesh = m_HasSkyPrimitiveMesh;
-        renderContext.gridMesh = &m_ScenePrimitiveMeshDesc;
-        renderContext.gridMeshRevision = m_ScenePrimitiveMeshRevision;
-        renderContext.hasGridMesh = m_HasScenePrimitiveMesh;
-        renderContext.renderItems = &m_SceneRenderItems;
-        renderContext.renderItemsRevision = m_SceneRenderItemsRevision;
-        renderContext.skyAverageColor = m_SkyAverageColor;
-        renderContext.renderSceneCacheDirtyFlags = m_RenderSceneCacheDirtyFlags;
-        renderContext.lastViewportGridEnabled = m_LastViewportGridEnabled;
-        renderContext.hasScenePrimitiveMesh = m_HasScenePrimitiveMesh;
-        renderContext.hasSkyPrimitiveMesh = m_HasSkyPrimitiveMesh;
-        renderContext.lastSkyMeshSignature = &m_LastSkyMeshSignature;
-        renderContext.skyboxSourcePath = &m_SkyboxSourcePath;
-        renderContext.lastSceneRebuildMs = &m_LastSceneRebuildMs;
-        renderContext.lastSceneViewBuildMs = &m_LastSceneViewBuildMs;
-        renderContext.lastRenderFrameMs = &m_LastRenderFrameMs;
-        renderContext.onRendererChanged = [this]()
-        {
-            ReleaseGizmoToolbarIcons();
-            m_ContentBrowserCache.Shutdown(m_LastRenderer);
-        };
-        renderContext.syncSkyEnvironmentResources = [this]()
-        {
-            Editor::SkyPreviewTextureHostContext skyPreviewContext = BuildSkyPreviewTextureHostContext();
-            m_SkyPreviewTextureHostService.Sync(skyPreviewContext);
-        };
-        renderContext.findPrimarySkyEntity = [this]()
+        Editor::SceneRenderCacheBuildContext context {};
+        context.scene = &m_Scene;
+        context.showGrid = m_ViewportController.ShowGrid();
+        context.skyEnvironmentLinearPixels = &m_SkyEnvironmentLinearPixels;
+        context.skyEnvironmentWidth = m_SkyEnvironmentWidth;
+        context.skyEnvironmentHeight = m_SkyEnvironmentHeight;
+        context.streamedMeshAssets = &m_StreamedMeshAssets;
+        context.collectRenderSources = collectRenderSources;
+        context.buildScenePrimitiveMesh = buildScenePrimitiveMesh;
+        context.buildSkyPrimitiveMesh = buildSkyPrimitiveMesh;
+        context.findPrimarySkyEntity = [this]()
         {
             return FindPrimarySkyEntity();
         };
-        renderContext.buildSkyMeshSignature = [this](const EntityID)
+        context.resolveImportedSceneParts = [this](const std::string& sourcePath) -> ImportedScenePartsState*
         {
-            Editor::SceneRenderCacheStateContext cacheStateContext = BuildSceneRenderCacheStateContext();
-            return m_SceneRenderCacheStateService.BuildActiveSkyMeshSignature(cacheStateContext);
+            Editor::MeshStreamingGeometryContext geometryContext = BuildMeshStreamingGeometryContext();
+            geometryContext.streamingService = nullptr;
+            geometryContext.streamedMeshAssets = nullptr;
+            geometryContext.logStreamingError = {};
+            geometryContext.logStreamingWarn = {};
+            return m_MeshStreamingGeometryService.ResolveImportedSceneParts(geometryContext, sourcePath);
         };
-        renderContext.rebuildScenePrimitiveMesh = [this]()
+        context.resolveMeshRendererGeometry = [this](const TransformComponent& transform, const MeshRendererComponent& meshRenderer)
         {
-            RebuildScenePrimitiveMesh();
+            return ResolveMeshRendererGeometry(transform, meshRenderer);
         };
-        renderContext.resolveSkyAssetPath = [this](const std::string& assetPath)
+        context.computeRequestedMeshLod = [this](const TransformComponent& transform, const MeshRendererComponent& meshRenderer)
         {
-            return ResolveSkyAssetPath(assetPath);
+            return ComputeRequestedMeshLod(transform, meshRenderer);
         };
-        renderContext.setLensSourceEntity = [this](const EntityID lensSourceEntity)
+        context.computeSkyColor = [this](
+            const std::array<float, 3>& direction,
+            const SkyLightComponent& skyLight,
+            const bool hasEnvironment)
         {
-            m_ViewportController.SetLensSourceEntity(lensSourceEntity);
+            const Vec3 linearSkyColor = ComputeSkyColorLikeLuma(
+                { direction[0], direction[1], direction[2] },
+                skyLight,
+                hasEnvironment,
+                m_SkyEnvironmentLinearPixels,
+                m_SkyEnvironmentWidth,
+                m_SkyEnvironmentHeight);
+            return std::array<float, 3> { linearSkyColor.x, linearSkyColor.y, linearSkyColor.z };
         };
-        renderContext.clearSkyRebuildRequested = [this](const EntityID skyEntity)
-        {
-            auto& registry = m_Scene.GetRegistry();
-            if (skyEntity == entt::null ||
-                !registry.valid(skyEntity) ||
-                !registry.all_of<SkyLightComponent>(skyEntity))
-            {
-                return;
-            }
-
-            auto& skyLight = registry.get<SkyLightComponent>(skyEntity);
-            if (skyLight.active)
-            {
-                skyLight.rebuildIBLRequested = false;
-            }
-        };
-        renderContext.buildBlendedPostProcessView =
-            [this](const std::array<float, 3>& cameraWorldPosition, ScenePostProcessView& outPostProcess)
-        {
-                BuildBlendedPostProcessView(cameraWorldPosition, outPostProcess);
-            };
-
-        m_RenderFrameCoordinatorService.Render(renderContext);
+        return context;
     }
 
     bool TriangleLayer::IsAssetPipelineInitialized() const
@@ -2647,74 +2175,7 @@ namespace Luma
 
         if (m_ShowHierarchyPanel)
         {
-            EnsureGizmoToolbarIconsLoaded();
-            const auto& icons = m_EditorIconService.Icons();
-            Editor::HierarchyPanelContext hierarchyPanelContext {};
-            hierarchyPanelContext.scene = &m_Scene;
-            hierarchyPanelContext.panelIconTexture = icons.hierarchyPanel;
-            hierarchyPanelContext.createIconTexture = icons.hierarchyCreate;
-            hierarchyPanelContext.cameraIconTexture = icons.hierarchyCamera;
-            hierarchyPanelContext.cubeIconTexture = icons.hierarchyCube;
-            hierarchyPanelContext.planeIconTexture = icons.hierarchyPlane;
-            hierarchyPanelContext.sphereIconTexture = icons.hierarchySphere;
-            hierarchyPanelContext.cylinderIconTexture = icons.hierarchyCylinder;
-            hierarchyPanelContext.drawEntityCreationMenu = [this](const EntityID parentEntity)
-            {
-                m_EntityCreationMenu.Draw({
-                    parentEntity,
-                    [this](const Editor::EntityTemplateKind templateKind, const EntityID requestedParentEntity)
-                    {
-                        CreateEntityFromTemplate(templateKind, requestedParentEntity);
-                    }
-                });
-            };
-            hierarchyPanelContext.isEntitySelected = [this](const EntityID entity) -> bool
-            {
-                return m_SceneEntityUtilityService.IsEntitySelected(m_SelectionState, entity);
-            };
-            hierarchyPanelContext.isEntityHidden = [this](const EntityID entity) -> bool
-            {
-                const auto& registry = m_Scene.GetRegistry();
-                return entity != entt::null &&
-                    registry.valid(entity) &&
-                    registry.all_of<EditorRuntimeOnlyComponent>(entity);
-            };
-            hierarchyPanelContext.selectSingleEntity = [this](const EntityID entity)
-            {
-                Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
-                m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, entity);
-            };
-            hierarchyPanelContext.toggleEntitySelection = [this](const EntityID entity)
-            {
-                Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
-                m_SceneEntityUtilityService.ToggleEntitySelection(selectionContext, entity);
-            };
-            hierarchyPanelContext.pruneSelection = [this]()
-            {
-                m_SceneEntityUtilityService.PruneEntitySelection(m_Scene, m_SelectionState);
-            };
-            hierarchyPanelContext.markSceneRenderCacheDirty = [this]()
-            {
-                MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::Geometry);
-            };
-            hierarchyPanelContext.createEntityFromMeshAsset =
-                [this](const std::filesystem::path& assetPath, const EntityID parentEntity) -> EntityID
-            {
-                return CreateEntityFromMeshAsset(assetPath, parentEntity);
-            };
-            hierarchyPanelContext.createPrefabFromEntity = [this](const EntityID entity) -> bool
-            {
-                return CreatePrefabFromEntity(entity);
-            };
-            hierarchyPanelContext.isMeshAssetPathCandidate = [](const std::filesystem::path& assetPath) -> bool
-            {
-                return IsMeshAssetPathCandidate(assetPath);
-            };
-            hierarchyPanelContext.setContentStatus = [this](std::string status)
-            {
-                m_EditorStatus.Content() = std::move(status);
-            };
-            m_HierarchyPanel.Draw(&m_ShowHierarchyPanel, hierarchyPanelContext);
+            m_HierarchyPanel.Draw(&m_ShowHierarchyPanel, BuildHierarchyPanelContext());
         }
         if (m_ShowViewportPanel)
         {
@@ -2742,32 +2203,7 @@ namespace Luma
         }
         if (m_ShowProjectSettingsPanel)
         {
-            Editor::ProjectSettingsPanelContext projectSettingsContext {};
-            projectSettingsContext.resetGameplayInputBindings = [this]()
-            {
-                m_GameplayInputBindingService.ConfigureEditorGameplayDefaults();
-            };
-            projectSettingsContext.onProjectConfigSaved = [this]()
-            {
-                RefreshWindowTitle();
-            };
-            projectSettingsContext.setProjectInputStatus = [this](std::string status)
-            {
-                m_EditorStatus.SetProjectInput(std::move(status));
-            };
-            projectSettingsContext.getProjectInputStatus = [this]() -> std::string_view
-            {
-                return m_EditorStatus.GetProjectInput();
-            };
-            projectSettingsContext.setProjectConfigStatus = [this](std::string status)
-            {
-                m_EditorStatus.SetProjectConfig(std::move(status));
-            };
-            projectSettingsContext.getProjectConfigStatus = [this]() -> std::string_view
-            {
-                return m_EditorStatus.GetProjectConfig();
-            };
-            m_ProjectSettingsPanel.Draw(&m_ShowProjectSettingsPanel, projectSettingsContext);
+            m_ProjectSettingsPanel.Draw(&m_ShowProjectSettingsPanel, BuildProjectSettingsPanelContext());
         }
         if (m_ShowPreferencesPanel)
         {
@@ -2779,39 +2215,10 @@ namespace Luma
         }
         if (m_ShowPluginsPanel)
         {
-            Editor::PluginsPanelContext pluginsPanelContext {};
-            pluginsPanelContext.invalidateProjectSettingsDraft = [this]()
-            {
-                m_ProjectSettingsPanel.InvalidateDraft();
-            };
-            pluginsPanelContext.setProjectConfigStatus = [this](std::string status)
-            {
-                m_EditorStatus.SetProjectConfig(std::move(status));
-            };
-            pluginsPanelContext.getProjectConfigStatus = [this]() -> std::string_view
-            {
-                return m_EditorStatus.GetProjectConfig();
-            };
-            m_PluginsPanel.Draw(&m_ShowPluginsPanel, pluginsPanelContext);
+            m_PluginsPanel.Draw(&m_ShowPluginsPanel, BuildPluginsPanelContext());
         }
         {
-            m_PackageManagerHostFacadeService.Draw({
-                &m_PackageManagerHostService,
-                &m_PackageManagerPanel,
-                Project::IsLoaded(),
-                Project::IsLoaded() ? &Project::GetProjectRoot() : nullptr,
-                &m_ShowPackageManagerPanel,
-                [this]()
-                {
-                    Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-                    m_ContentBrowserHostFacadeService.RefreshRoots(contentBrowserContext);
-                },
-                [this]()
-                {
-                    Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-                    m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
-                }
-            });
+            m_PackageManagerHostFacadeService.Draw(BuildPackageManagerHostFacadeContext());
         }
         if (m_ShowGPUResourcesPanel)
         {
@@ -3375,13 +2782,11 @@ namespace Luma
         context.packageManagerHostContext.showPackageManagerPanel = &m_ShowPackageManagerPanel;
         context.packageManagerHostContext.refreshContentRoots = [this]()
         {
-            Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-            m_ContentBrowserHostFacadeService.RefreshRoots(contentBrowserContext);
+            RefreshContentBrowserRoots();
         };
         context.packageManagerHostContext.refreshContentEntries = [this]()
         {
-            Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-            m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
+            RefreshContentBrowserEntries();
         };
         context.selectSingleEntity = [this](const EntityID entity)
         {
@@ -3390,9 +2795,7 @@ namespace Luma
         };
         context.refreshContentBrowser = [this]()
         {
-            Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-            m_ContentBrowserHostFacadeService.InvalidateFolderTreeCache(contentBrowserContext);
-            m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
+            RefreshContentBrowserTreeAndEntries();
         };
         context.openProjectSettings = [this]()
         {
@@ -3452,78 +2855,259 @@ namespace Luma
         };
         context.openAsset = [this](const std::filesystem::path& assetPath, const std::string& entryName)
         {
-            std::string extension = assetPath.extension().string();
-            std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char ch)
-            {
-                return static_cast<char>(std::tolower(ch));
-            });
-            if (extension == ".lumaprefab")
-            {
-                InstantiatePrefabAsset(assetPath);
-                return;
-            }
-            m_EditorStatus.Content() = "Open asset: " + entryName;
+            OpenContentBrowserAsset(assetPath, entryName);
         };
         return context;
     }
 
-    void TriangleLayer::DrawConsolePanel()
+    Editor::PackageManagerHostFacadeContext TriangleLayer::BuildPackageManagerHostFacadeContext()
     {
-        m_ConsolePanelHostService.Draw({
-            &m_ConsolePanel,
-            &m_ShowConsolePanel,
-            &m_CommandPaletteQuery,
-            &m_ConsoleCommands,
-            &m_ConsoleRecentCommands,
-            &m_ConsoleFavoriteCommands,
-            &m_ConsoleCommandInput,
-            [this](const std::string_view commandLine, const bool addToHistory)
+        return {
+            &m_PackageManagerHostService,
+            &m_PackageManagerPanel,
+            Project::IsLoaded(),
+            Project::IsLoaded() ? &Project::GetProjectRoot() : nullptr,
+            &m_ShowPackageManagerPanel,
+            [this]()
             {
-                ExecuteConsoleCommand(commandLine, addToHistory);
+                RefreshContentBrowserRoots();
             },
-            &m_ConsoleEntries,
-            &m_ConsoleMutex,
-            &m_ConsoleSearchQuery,
-            &m_ConsoleCommandHistory,
-            &m_ConsoleHistoryCursor,
-            &m_ConsoleFilterTrace,
-            &m_ConsoleFilterInfo,
-            &m_ConsoleFilterWarn,
-            &m_ConsoleFilterError,
-            &m_ConsoleFilterFatal,
-            &m_ConsoleAutoScroll,
-            &m_ConsoleScrollToBottom,
-            &m_ConsoleTasks,
-            [this](const std::size_t index)
+            [this]()
             {
-                if (index >= m_ConsoleTasks.size())
-                {
-                    return;
-                }
-
-                ConsoleTaskState& task = m_ConsoleTasks[index];
-                task.running = true;
-                task.progress = 0.0f;
-                LUMA_LOG_INFO("Task", "Started task: " + task.name);
-            },
-            [this](const std::size_t index)
-            {
-                if (index >= m_ConsoleTasks.size())
-                {
-                    return;
-                }
-
-                ConsoleTaskState& task = m_ConsoleTasks[index];
-                task.running = false;
-                task.progress = 0.0f;
-                LUMA_LOG_WARN("Task", "Canceled task: " + task.name);
+                RefreshContentBrowserEntries();
             }
-        });
+        };
     }
 
-    void TriangleLayer::DrawInspectorPanel()
+    Editor::EditorTickCoordinatorContext TriangleLayer::BuildEditorTickCoordinatorContext(const float deltaTimeSeconds)
     {
-        m_InspectorHostService.Draw({
+        Editor::EditorTickCoordinatorContext context {};
+        context.deltaTimeSeconds = deltaTimeSeconds;
+        context.timeSeconds = &m_Time;
+        context.lastDeltaTimeSeconds = &m_LastDeltaTimeSeconds;
+        context.renderer = m_LastRenderer;
+        context.showContentBrowserPanel = m_ShowContentBrowserPanel;
+        context.contentBrowserCache = &m_ContentBrowserCache;
+        context.lastContentBrowserTickMs = &m_LastContentBrowserTickMs;
+        context.resourceStreamingService = &m_ResourceStreamingService;
+        context.lastStreamingTickMs = &m_LastStreamingTickMs;
+        context.physicsSystem = &m_PhysicsSystem;
+        context.physicsSimulationEnabled = IsSceneSimulationEnabled();
+        context.scene = &m_Scene;
+        context.sceneDocument = &m_SceneDocument;
+        context.pruneEntitySelection = [this]()
+        {
+            m_SceneEntityUtilityService.PruneEntitySelection(m_Scene, m_SelectionState);
+        };
+        context.tickPackageManager = [this]()
+        {
+            m_PackageManagerHostFacadeService.Tick(BuildPackageManagerHostFacadeContext());
+        };
+        context.pumpContentFolderTreeRebuild = [this]()
+        {
+            Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
+            m_ContentBrowserHostFacadeService.PumpContentFolderTreeRebuild(contentBrowserContext);
+        };
+        context.pumpContentEntriesRefresh = [this]()
+        {
+            Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
+            m_ContentBrowserHostFacadeService.PumpContentEntriesRefresh(contentBrowserContext);
+        };
+        context.tickContentImportQueue = [this]()
+        {
+            TickContentImportQueue();
+        };
+        context.updateStreamingTaskState = [this]()
+        {
+            UpdateStreamingTaskState();
+        };
+        context.updateConsoleTasks = [this](const float tickDeltaTimeSecondsValue)
+        {
+            UpdateConsoleTasks(tickDeltaTimeSecondsValue);
+        };
+        context.markSceneRenderCacheDirty = [this]()
+        {
+            MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::Geometry);
+        };
+        context.updateSceneDirtyState = [this]()
+        {
+            UpdateSceneDirtyState();
+        };
+        return context;
+    }
+
+    Editor::SceneRenderItemAssemblyContext TriangleLayer::BuildSceneRenderItemAssemblyContext(
+        const std::vector<Editor::PendingSceneRenderSource>& pendingRenderSources,
+        const std::uint64_t renderItemsStateHash)
+    {
+        Editor::SceneRenderItemAssemblyContext context {};
+        context.pendingRenderSources = &pendingRenderSources;
+        context.renderItemsStateHash = renderItemsStateHash;
+        context.buildImportedMaterialProxy = [this](
+            const Assets::MeshMaterialInfo& sourceMaterial,
+            const std::filesystem::path& sourceMaterialPath)
+        {
+            return BuildImportedMaterialRenderProxy(sourceMaterial, sourceMaterialPath);
+        };
+        context.tryBuildSlotMaterialOverride = [this](
+            const MeshRendererComponent& meshRenderer,
+            const std::size_t materialSlotIndex,
+            MaterialRenderProxy& outProxy)
+        {
+            const std::string* slotOverridePath =
+                ResolveMeshRendererMaterialOverride(meshRenderer, materialSlotIndex);
+            if (slotOverridePath == nullptr || slotOverridePath->empty())
+            {
+                return false;
+            }
+
+            const std::filesystem::path assetPath = ResolveSkyAssetPath(*slotOverridePath);
+            return m_MaterialRenderProxyCacheService.TryGetProxy(
+                {
+                    [](MaterialComponent& material)
+                    {
+                        InitializeDefaultMaterialComponent(material);
+                    },
+                    [this](const std::filesystem::path& path, MaterialComponent& material, std::string& outError) -> bool
+                    {
+                        return LoadMaterialComponentFromJsonAsset(path, material, outError);
+                    },
+                    [](const MaterialComponent& material, const std::filesystem::path& path) -> MaterialRenderProxy
+                    {
+                        return BuildMaterialRenderProxyFromComponent(material, path);
+                    }
+                },
+                assetPath,
+                outProxy);
+        };
+        context.tryBuildEntityMaterialOverride = [this](
+            const EntityID entity,
+            const Assets::MeshMaterialInfo* sourceMaterial,
+            MaterialRenderProxy& outProxy)
+        {
+            const MaterialComponent* materialComponent = m_Scene.GetRegistry().try_get<MaterialComponent>(entity);
+            if (materialComponent == nullptr)
+            {
+                return false;
+            }
+
+            MaterialComponent defaultMaterial {};
+            InitializeDefaultMaterialComponent(defaultMaterial);
+            const bool shouldOverrideSourceMaterial =
+                sourceMaterial == nullptr ||
+                !MaterialPropertiesEqual(*materialComponent, defaultMaterial) ||
+                (!TrimCopy(materialComponent->sharedMaterial).empty() &&
+                 materialComponent->sharedMaterial != std::string(kDefaultGridMaterialAsset));
+            if (!shouldOverrideSourceMaterial)
+            {
+                return false;
+            }
+
+            outProxy = BuildMaterialRenderProxyFromComponent(
+                *materialComponent,
+                ResolveSkyAssetPath(materialComponent->sharedMaterial));
+            return true;
+        };
+        context.tryBuildBakedLightmap = [this](
+            const EntityID entity,
+            const TransformComponent& transform,
+            const MeshRendererComponent& meshRenderer,
+            const PrimitiveMeshData& geometry,
+            const MaterialRenderProxy& material,
+            BakedLightmapData& outLightmap)
+        {
+            return TryBuildBakedLightmap(entity, transform, meshRenderer, geometry, material, outLightmap);
+        };
+        return context;
+    }
+
+    void TriangleLayer::RefreshContentBrowserRoots()
+    {
+        Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
+        m_ContentBrowserHostFacadeService.RefreshRoots(contentBrowserContext);
+    }
+
+    void TriangleLayer::RefreshContentBrowserEntries()
+    {
+        Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
+        m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
+    }
+
+    void TriangleLayer::RefreshContentBrowserTreeAndEntries()
+    {
+        Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
+        m_ContentBrowserHostFacadeService.InvalidateFolderTreeCache(contentBrowserContext);
+        m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
+    }
+
+    void TriangleLayer::RefreshContentBrowserAll()
+    {
+        Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
+        m_ContentBrowserHostFacadeService.RefreshRoots(contentBrowserContext);
+        m_ContentBrowserHostFacadeService.InvalidateFolderTreeCache(contentBrowserContext);
+        m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
+    }
+
+    void TriangleLayer::OpenContentBrowserAsset(const std::filesystem::path& assetPath, const std::string& entryName)
+    {
+        std::string extension = assetPath.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char ch)
+        {
+            return static_cast<char>(std::tolower(ch));
+        });
+        if (extension == ".lumaprefab")
+        {
+            Editor::PrefabWorkflowContext context = BuildPrefabWorkflowContext();
+            m_PrefabWorkflowService.InstantiatePrefabAsset(context, assetPath, entt::null);
+            return;
+        }
+
+        m_EditorStatus.Content() = "Open asset: " + entryName;
+    }
+
+    Editor::PrefabWorkflowContext TriangleLayer::BuildPrefabWorkflowContext()
+    {
+        Editor::PrefabWorkflowContext context {};
+        context.scene = &m_Scene;
+        context.editorStatus = &m_EditorStatus;
+        context.selectionState = &m_SelectionState;
+        context.selectedContentEntry = &m_SelectedContentEntry;
+        context.currentContentDirectory = &m_CurrentContentDirectory;
+        context.timeSeconds = m_Time;
+        context.playModeActive = IsPlayModeActive();
+        context.sceneDirty = IsSceneDirty();
+        context.contentBrowserHostFacadeService = &m_ContentBrowserHostFacadeService;
+        context.buildContentBrowserContext = [this]()
+        {
+            return BuildContentBrowserHostFacadeContext();
+        };
+        context.markSceneRenderCacheDirty = [this](Editor::SceneRenderCacheDirtyFlags flags)
+        {
+            MarkSceneRenderCacheDirty(flags);
+        };
+        context.captureSelectedEntityUuids = [this]()
+        {
+            return CaptureSelectedEntityUuids();
+        };
+        context.restoreSelectedEntityUuids = [this](const std::vector<UUID>& selectionUuids, const UUID primaryUuid)
+        {
+            RestoreSelectedEntityUuids(selectionUuids, primaryUuid);
+        };
+        context.updateSceneDirtyState = [this]()
+        {
+            UpdateSceneDirtyState();
+        };
+        context.selectSingleEntity = [this](const EntityID entity)
+        {
+            Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
+            m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, entity);
+        };
+        return context;
+    }
+
+    Editor::InspectorHostContext TriangleLayer::BuildInspectorHostContext()
+    {
+        return {
             &m_ShowInspectorPanel,
             &m_Scene,
             &m_SelectedContentEntry,
@@ -3535,6 +3119,7 @@ namespace Luma
             &m_ContentRoots,
             &m_ImportedSceneParts,
             Project::IsLoaded() ? &Project::GetConfig().tags : nullptr,
+            Project::IsLoaded() ? &Project::GetConfig().layers : nullptr,
             &m_MaterialTextureAssetPickerService,
             &m_MaterialTextureAssetPickerPanel,
             &m_InspectorPanel,
@@ -3555,35 +3140,43 @@ namespace Luma
             &m_InspectorAddComponentPanel,
             [this](const EntityID entity)
             {
-                return CreatePrefabFromEntity(entity);
+                Editor::PrefabWorkflowContext context = BuildPrefabWorkflowContext();
+                return m_PrefabWorkflowService.CreatePrefabFromEntity(context, entity);
             },
             [this](const EntityID entity)
             {
-                return ApplyPrefabInstance(entity);
+                Editor::PrefabWorkflowContext context = BuildPrefabWorkflowContext();
+                return m_PrefabWorkflowService.ApplyPrefabInstance(context, entity);
             },
             [this](const EntityID entity)
             {
-                return RevertPrefabInstance(entity);
+                Editor::PrefabWorkflowContext context = BuildPrefabWorkflowContext();
+                return m_PrefabWorkflowService.RevertPrefabInstance(context, entity);
             },
             [this](const EntityID entity)
             {
-                return GetPrefabInstanceStatus(entity);
+                Editor::PrefabWorkflowContext context = BuildPrefabWorkflowContext();
+                return m_PrefabWorkflowService.GetPrefabInstanceStatus(context, entity);
             },
             [this](const EntityID entity)
             {
-                return GetPrefabOverridePaths(entity);
+                Editor::PrefabWorkflowContext context = BuildPrefabWorkflowContext();
+                return m_PrefabWorkflowService.GetPrefabOverridePaths(context, entity);
             },
             [this](const EntityID entity, const std::string_view componentPath)
             {
-                return RevertPrefabComponent(entity, componentPath);
+                Editor::PrefabWorkflowContext context = BuildPrefabWorkflowContext();
+                return m_PrefabWorkflowService.RevertPrefabComponent(context, entity, componentPath);
             },
             [this](const EntityID entity, const std::string_view overridePath)
             {
-                return RevertPrefabOverridePath(entity, overridePath);
+                Editor::PrefabWorkflowContext context = BuildPrefabWorkflowContext();
+                return m_PrefabWorkflowService.RevertPrefabOverridePath(context, entity, overridePath);
             },
             [this](const EntityID entity)
             {
-                SelectPrefabAsset(entity);
+                Editor::PrefabWorkflowContext context = BuildPrefabWorkflowContext();
+                m_PrefabWorkflowService.SelectPrefabAsset(context, entity);
             },
             [this](const EntityID entity, const PrimitiveType primitive)
             {
@@ -3645,36 +3238,194 @@ namespace Luma
             {
                 m_EditorStatus.Content() = std::move(status);
             }
+        };
+    }
+
+    Editor::HierarchyPanelContext TriangleLayer::BuildHierarchyPanelContext()
+    {
+        EnsureGizmoToolbarIconsLoaded();
+        const auto& icons = m_EditorIconService.Icons();
+
+        Editor::HierarchyPanelContext context {};
+        context.scene = &m_Scene;
+        context.panelIconTexture = icons.hierarchyPanel;
+        context.createIconTexture = icons.hierarchyCreate;
+        context.cameraIconTexture = icons.hierarchyCamera;
+        context.pointLightIconTexture = icons.pointLight;
+        context.cubeIconTexture = icons.hierarchyCube;
+        context.planeIconTexture = icons.hierarchyPlane;
+        context.sphereIconTexture = icons.hierarchySphere;
+        context.cylinderIconTexture = icons.hierarchyCylinder;
+        context.drawEntityCreationMenu = [this](const EntityID parentEntity)
+        {
+            m_EntityCreationMenu.Draw({
+                parentEntity,
+                [this](const Editor::EntityTemplateKind templateKind, const EntityID requestedParentEntity)
+                {
+                    CreateEntityFromTemplate(templateKind, requestedParentEntity);
+                }
+            });
+        };
+        context.isEntitySelected = [this](const EntityID entity) -> bool
+        {
+            return m_SceneEntityUtilityService.IsEntitySelected(m_SelectionState, entity);
+        };
+        context.isEntityHidden = [this](const EntityID entity) -> bool
+        {
+            const auto& registry = m_Scene.GetRegistry();
+            return entity != entt::null &&
+                registry.valid(entity) &&
+                registry.all_of<EditorRuntimeOnlyComponent>(entity);
+        };
+        context.selectSingleEntity = [this](const EntityID entity)
+        {
+            Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
+            m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, entity);
+        };
+        context.toggleEntitySelection = [this](const EntityID entity)
+        {
+            Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
+            m_SceneEntityUtilityService.ToggleEntitySelection(selectionContext, entity);
+        };
+        context.pruneSelection = [this]()
+        {
+            m_SceneEntityUtilityService.PruneEntitySelection(m_Scene, m_SelectionState);
+        };
+        context.markSceneRenderCacheDirty = [this]()
+        {
+            MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::Geometry);
+        };
+        context.createEntityFromMeshAsset = [this](const std::filesystem::path& assetPath, const EntityID parentEntity) -> EntityID
+        {
+            return CreateEntityFromMeshAsset(assetPath, parentEntity);
+        };
+        context.createPrefabFromEntity = [this](const EntityID entity) -> bool
+        {
+            Editor::PrefabWorkflowContext prefabContext = BuildPrefabWorkflowContext();
+            return m_PrefabWorkflowService.CreatePrefabFromEntity(prefabContext, entity);
+        };
+        context.isMeshAssetPathCandidate = [](const std::filesystem::path& assetPath) -> bool
+        {
+            return IsMeshAssetPathCandidate(assetPath);
+        };
+        context.setContentStatus = [this](std::string status)
+        {
+            m_EditorStatus.Content() = std::move(status);
+        };
+        return context;
+    }
+
+    Editor::ProjectSettingsPanelContext TriangleLayer::BuildProjectSettingsPanelContext()
+    {
+        Editor::ProjectSettingsPanelContext context {};
+        context.resetGameplayInputBindings = [this]()
+        {
+            m_GameplayInputBindingService.ConfigureEditorGameplayDefaults();
+        };
+        context.onProjectConfigSaved = [this]()
+        {
+            RefreshWindowTitle();
+        };
+        context.setProjectInputStatus = [this](std::string status)
+        {
+            m_EditorStatus.SetProjectInput(std::move(status));
+        };
+        context.getProjectInputStatus = [this]() -> std::string_view
+        {
+            return m_EditorStatus.GetProjectInput();
+        };
+        context.setProjectConfigStatus = [this](std::string status)
+        {
+            m_EditorStatus.SetProjectConfig(std::move(status));
+        };
+        context.getProjectConfigStatus = [this]() -> std::string_view
+        {
+            return m_EditorStatus.GetProjectConfig();
+        };
+        return context;
+    }
+
+    Editor::PluginsPanelContext TriangleLayer::BuildPluginsPanelContext()
+    {
+        Editor::PluginsPanelContext context {};
+        context.invalidateProjectSettingsDraft = [this]()
+        {
+            m_ProjectSettingsPanel.InvalidateDraft();
+        };
+        context.setProjectConfigStatus = [this](std::string status)
+        {
+            m_EditorStatus.SetProjectConfig(std::move(status));
+        };
+        context.getProjectConfigStatus = [this]() -> std::string_view
+        {
+            return m_EditorStatus.GetProjectConfig();
+        };
+        return context;
+    }
+
+    void TriangleLayer::DrawConsolePanel()
+    {
+        m_ConsolePanelHostService.Draw({
+            &m_ConsolePanel,
+            &m_ShowConsolePanel,
+            &m_CommandPaletteQuery,
+            &m_ConsoleCommands,
+            &m_ConsoleRecentCommands,
+            &m_ConsoleFavoriteCommands,
+            &m_ConsoleCommandInput,
+            [this](const std::string_view commandLine, const bool addToHistory)
+            {
+                ExecuteConsoleCommand(commandLine, addToHistory);
+            },
+            &m_ConsoleEntries,
+            &m_ConsoleMutex,
+            &m_ConsoleSearchQuery,
+            &m_ConsoleCommandHistory,
+            &m_ConsoleHistoryCursor,
+            &m_ConsoleFilterTrace,
+            &m_ConsoleFilterInfo,
+            &m_ConsoleFilterWarn,
+            &m_ConsoleFilterError,
+            &m_ConsoleFilterFatal,
+            &m_ConsoleAutoScroll,
+            &m_ConsoleScrollToBottom,
+            &m_ConsoleTasks,
+            [this](const std::size_t index)
+            {
+                if (index >= m_ConsoleTasks.size())
+                {
+                    return;
+                }
+
+                ConsoleTaskState& task = m_ConsoleTasks[index];
+                task.running = true;
+                task.progress = 0.0f;
+                LUMA_LOG_INFO("Task", "Started task: " + task.name);
+            },
+            [this](const std::size_t index)
+            {
+                if (index >= m_ConsoleTasks.size())
+                {
+                    return;
+                }
+
+                ConsoleTaskState& task = m_ConsoleTasks[index];
+                task.running = false;
+                task.progress = 0.0f;
+                LUMA_LOG_WARN("Task", "Canceled task: " + task.name);
+            }
         });
+    }
+
+    void TriangleLayer::DrawInspectorPanel()
+    {
+        m_InspectorHostService.Draw(BuildInspectorHostContext());
     }
 
     EntityID TriangleLayer::CreateEntityFromTemplate(const Editor::EntityTemplateKind templateKind, const EntityID parentEntity)
     {
         return m_EntityTemplateCreationService.CreateEntityFromTemplate(
-            {
-                &m_Scene,
-                [this](const std::string& baseName)
-                {
-                    return m_SceneEntityUtilityService.GenerateUniqueEntityName(m_Scene, baseName);
-                },
-                [this](const EntityID entity, const PrimitiveType primitive)
-                {
-                    EnsurePrimitiveColliderForEntity(m_Scene.GetRegistry(), entity, primitive);
-                },
-                [](MaterialComponent& material)
-                {
-                    InitializeDefaultMaterialComponent(material);
-                },
-                [this](SkyLightComponent& skyLight)
-                {
-                    m_SceneEntityUtilityService.InitializeSkyLightDefaults(skyLight);
-                },
-                [this](const EntityID entity)
-                {
-                    Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
-                    m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, entity);
-                }
-            },
+            BuildEntityTemplateCreationContext(),
             templateKind,
             parentEntity);
     }
@@ -3689,6 +3440,43 @@ namespace Luma
             return entt::null;
         }
 
+        return m_MeshEntityImportService.CreateEntityFromMeshAsset(
+            BuildMeshEntityImportContext(),
+            assetPath,
+            parentEntity,
+            worldPosition);
+    }
+
+    Editor::EntityTemplateCreationContext TriangleLayer::BuildEntityTemplateCreationContext()
+    {
+        return {
+            &m_Scene,
+            [this](const std::string& baseName)
+            {
+                return m_SceneEntityUtilityService.GenerateUniqueEntityName(m_Scene, baseName);
+            },
+            [this](const EntityID entity, const PrimitiveType primitive)
+            {
+                EnsurePrimitiveColliderForEntity(m_Scene.GetRegistry(), entity, primitive);
+            },
+            [](MaterialComponent& material)
+            {
+                InitializeDefaultMaterialComponent(material);
+            },
+            [this](SkyLightComponent& skyLight)
+            {
+                m_SceneEntityUtilityService.InitializeSkyLightDefaults(skyLight);
+            },
+            [this](const EntityID entity)
+            {
+                Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
+                m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, entity);
+            }
+        };
+    }
+
+    Editor::MeshEntityImportContext TriangleLayer::BuildMeshEntityImportContext()
+    {
         std::filesystem::path activeContentRoot;
         Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
         if (const ContentBrowserRoot* activeRoot = m_ContentBrowserHostFacadeService.GetActiveRoot(contentBrowserContext);
@@ -3697,663 +3485,41 @@ namespace Luma
             activeContentRoot = activeRoot->path;
         }
 
-        return m_MeshEntityImportService.CreateEntityFromMeshAsset(
+        return {
+            &m_Scene,
+            activeContentRoot,
+            Project::IsLoaded(),
+            Project::IsLoaded() ? Project::GetAssetsPath() : std::filesystem::path {},
+            Project::IsLoaded() ? Project::GetProjectRoot() : std::filesystem::path {},
+            [this](const std::string& baseName)
             {
-                &m_Scene,
-                activeContentRoot,
-                Project::IsLoaded(),
-                Project::IsLoaded() ? Project::GetAssetsPath() : std::filesystem::path {},
-                Project::IsLoaded() ? Project::GetProjectRoot() : std::filesystem::path {},
-                [this](const std::string& baseName)
-                {
-                    return m_SceneEntityUtilityService.GenerateUniqueEntityName(m_Scene, baseName);
-                },
-                [this](const EntityID entity)
-                {
-                    Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
-                    m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, entity);
-                },
-                [this](const std::string_view message)
-                {
-                    AddConsoleLine(LogLevel::Warn, "Import", message, message);
-                },
-                [](MaterialComponent& material)
-                {
-                    InitializeDefaultMaterialComponent(material);
-                },
-                [this](
-                    const std::string& cacheKey,
-                    const std::filesystem::path& resolvedPath,
-                    const std::vector<Assets::MeshScenePart>& parts)
-                {
-                    ImportedScenePartsState& importedSceneState = m_ImportedSceneParts[cacheKey];
-                    importedSceneState.resolvedPath = resolvedPath;
-                    importedSceneState.parts = parts;
-                    importedSceneState.loadAttempted = true;
-                    importedSceneState.loadFailed = false;
-                }
+                return m_SceneEntityUtilityService.GenerateUniqueEntityName(m_Scene, baseName);
             },
-            assetPath,
-            parentEntity,
-            worldPosition);
-    }
-
-    std::filesystem::path TriangleLayer::BuildUniquePrefabAssetPath(const std::string_view baseName) const
-    {
-        if (!Project::IsLoaded())
-        {
-            return {};
-        }
-
-        std::filesystem::path targetDirectory = Project::GetAssetsPath() / "Prefabs";
-        if (!m_CurrentContentDirectory.empty() && PathIsWithinRoot(m_CurrentContentDirectory, Project::GetAssetsPath()))
-        {
-            targetDirectory = m_CurrentContentDirectory;
-        }
-
-        const std::string fileStem = SanitizeFileStem(std::string(baseName));
-        std::error_code ec;
-        std::filesystem::create_directories(targetDirectory, ec);
-        if (ec)
-        {
-            return {};
-        }
-
-        for (int suffixIndex = 0; suffixIndex < 1000; ++suffixIndex)
-        {
-            const std::string suffix = suffixIndex == 0 ? "" : " " + std::to_string(suffixIndex);
-            const std::filesystem::path candidate = targetDirectory / (fileStem + suffix + ".lumaprefab");
-            if (!std::filesystem::exists(candidate, ec))
+            [this](const EntityID entity)
             {
-                return candidate;
-            }
-        }
-
-        return {};
-    }
-
-    EntityID TriangleLayer::FindPrefabInstanceRoot(const EntityID entity) const
-    {
-        const auto& registry = m_Scene.GetRegistry();
-        EntityID current = entity;
-        while (current != entt::null && registry.valid(current))
-        {
-            if (const auto* prefabInstance = registry.try_get<PrefabInstanceComponent>(current);
-                prefabInstance != nullptr && prefabInstance->isRoot)
+                Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
+                m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, entity);
+            },
+            [this](const std::string_view message)
             {
-                return current;
-            }
-
-            const auto* relationship = registry.try_get<RelationshipComponent>(current);
-            if (relationship == nullptr)
+                AddConsoleLine(LogLevel::Warn, "Import", message, message);
+            },
+            [](MaterialComponent& material)
             {
-                break;
-            }
-            current = relationship->parent;
-        }
-
-        return entt::null;
-    }
-
-    void TriangleLayer::MarkPrefabInstanceHierarchy(const EntityID rootEntity, const std::string& prefabAsset)
-    {
-        auto& registry = m_Scene.GetRegistry();
-        if (!registry.valid(rootEntity))
-        {
-            return;
-        }
-
-        std::function<void(EntityID, bool)> markRecursive;
-        markRecursive = [&](const EntityID entity, const bool isRoot)
-        {
-            if (!registry.valid(entity) || !registry.all_of<IDComponent>(entity))
+                InitializeDefaultMaterialComponent(material);
+            },
+            [this](
+                const std::string& cacheKey,
+                const std::filesystem::path& resolvedPath,
+                const std::vector<Assets::MeshScenePart>& parts)
             {
-                return;
-            }
-
-            PrefabInstanceComponent prefabInstance {};
-            prefabInstance.prefabAsset = prefabAsset;
-            prefabInstance.sourceEntityId = registry.get<IDComponent>(entity).id;
-            prefabInstance.isRoot = isRoot;
-            registry.emplace_or_replace<PrefabInstanceComponent>(entity, std::move(prefabInstance));
-
-            const auto* relationship = registry.try_get<RelationshipComponent>(entity);
-            if (relationship == nullptr)
-            {
-                return;
-            }
-
-            for (const EntityID child : relationship->children)
-            {
-                markRecursive(child, false);
+                ImportedScenePartsState& importedSceneState = m_ImportedSceneParts[cacheKey];
+                importedSceneState.resolvedPath = resolvedPath;
+                importedSceneState.parts = parts;
+                importedSceneState.loadAttempted = true;
+                importedSceneState.loadFailed = false;
             }
         };
-
-        markRecursive(rootEntity, true);
-    }
-
-    bool TriangleLayer::CreatePrefabFromEntity(const EntityID rootEntity)
-    {
-        if (IsPlayModeActive())
-        {
-            m_EditorStatus.Content() = "Prefab creation is unavailable during play mode.";
-            return false;
-        }
-        if (!Project::IsLoaded())
-        {
-            m_EditorStatus.Content() = "Load a project before creating prefabs.";
-            return false;
-        }
-
-        const auto& registry = m_Scene.GetRegistry();
-        if (!registry.valid(rootEntity) || !registry.all_of<TagComponent>(rootEntity))
-        {
-            m_EditorStatus.Content() = "Select a valid entity to create a prefab.";
-            return false;
-        }
-
-        const auto& tag = registry.get<TagComponent>(rootEntity);
-        const std::filesystem::path prefabPath = BuildUniquePrefabAssetPath(tag.name.empty() ? "NewPrefab" : tag.name);
-        if (prefabPath.empty())
-        {
-            m_EditorStatus.Content() = "Failed to allocate a prefab asset path.";
-            return false;
-        }
-
-        m_Scene.UpdateWorldTransforms();
-        std::string error;
-        if (!PrefabSerializer::SerializePrefab(m_Scene, rootEntity, prefabPath, error))
-        {
-            m_EditorStatus.Content() = "Failed to create prefab: " + error;
-            return false;
-        }
-
-        MarkPrefabInstanceHierarchy(rootEntity, prefabPath.lexically_normal().generic_string());
-        m_PrefabStatusCacheRootEntity = entt::null;
-        m_PrefabOverrideCacheEntity = entt::null;
-        Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-        m_ContentBrowserHostFacadeService.InvalidateFolderTreeCache(contentBrowserContext);
-        m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
-        m_EditorStatus.Content() = "Created prefab: " + prefabPath.filename().string();
-        return true;
-    }
-
-    EntityID TriangleLayer::InstantiatePrefabAsset(const std::filesystem::path& prefabPath, const EntityID parentEntity)
-    {
-        if (IsPlayModeActive())
-        {
-            m_EditorStatus.Content() = "Prefab instancing is unavailable during play mode.";
-            return entt::null;
-        }
-
-        std::string error;
-        EntityID instantiatedRoot = entt::null;
-        if (!PrefabSerializer::InstantiatePrefab(m_Scene, prefabPath, &instantiatedRoot, error) || instantiatedRoot == entt::null)
-        {
-            m_EditorStatus.Content() = "Failed to instantiate prefab: " + error;
-            return entt::null;
-        }
-
-        if (parentEntity != entt::null && m_Scene.GetRegistry().valid(parentEntity))
-        {
-            m_Scene.SetParent(instantiatedRoot, parentEntity);
-        }
-        m_Scene.UpdateWorldTransforms();
-
-        Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
-        m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, instantiatedRoot);
-        m_PrefabStatusCacheRootEntity = entt::null;
-        m_PrefabOverrideCacheEntity = entt::null;
-        MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::All);
-        m_EditorStatus.Content() = "Instantiated prefab: " + prefabPath.filename().string();
-        return instantiatedRoot;
-    }
-
-    bool TriangleLayer::ApplyPrefabInstance(const EntityID entity)
-    {
-        if (IsPlayModeActive())
-        {
-            m_EditorStatus.Content() = "Prefab apply is unavailable during play mode.";
-            return false;
-        }
-
-        const EntityID rootEntity = FindPrefabInstanceRoot(entity);
-        auto& registry = m_Scene.GetRegistry();
-        const auto* prefabInstance = rootEntity != entt::null ? registry.try_get<PrefabInstanceComponent>(rootEntity) : nullptr;
-        if (prefabInstance == nullptr)
-        {
-            m_EditorStatus.Content() = "Selected entity is not part of a prefab instance.";
-            return false;
-        }
-
-        std::filesystem::path prefabPath(prefabInstance->prefabAsset);
-        if (!prefabPath.is_absolute() && Project::IsLoaded())
-        {
-            prefabPath = (Project::GetProjectRoot() / prefabPath).lexically_normal();
-        }
-
-        m_Scene.UpdateWorldTransforms();
-        std::string error;
-        if (!PrefabSerializer::SerializePrefab(m_Scene, rootEntity, prefabPath, error))
-        {
-            m_EditorStatus.Content() = "Failed to apply prefab: " + error;
-            return false;
-        }
-
-        MarkPrefabInstanceHierarchy(rootEntity, prefabPath.lexically_normal().generic_string());
-        m_PrefabStatusCacheRootEntity = entt::null;
-        m_PrefabOverrideCacheEntity = entt::null;
-        Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-        m_ContentBrowserHostFacadeService.InvalidateFolderTreeCache(contentBrowserContext);
-        m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
-        m_EditorStatus.Content() = "Applied prefab: " + prefabPath.filename().string();
-        return true;
-    }
-
-    bool TriangleLayer::RevertPrefabInstance(const EntityID entity)
-    {
-        if (IsPlayModeActive())
-        {
-            m_EditorStatus.Content() = "Prefab revert is unavailable during play mode.";
-            return false;
-        }
-
-        const EntityID rootEntity = FindPrefabInstanceRoot(entity);
-        auto& registry = m_Scene.GetRegistry();
-        const auto* prefabInstance = rootEntity != entt::null ? registry.try_get<PrefabInstanceComponent>(rootEntity) : nullptr;
-        const auto* relationship = rootEntity != entt::null ? registry.try_get<RelationshipComponent>(rootEntity) : nullptr;
-        if (prefabInstance == nullptr)
-        {
-            m_EditorStatus.Content() = "Selected entity is not part of a prefab instance.";
-            return false;
-        }
-
-        std::filesystem::path prefabPath(prefabInstance->prefabAsset);
-        if (!prefabPath.is_absolute() && Project::IsLoaded())
-        {
-            prefabPath = (Project::GetProjectRoot() / prefabPath).lexically_normal();
-        }
-
-        const EntityID parentEntity = relationship != nullptr ? relationship->parent : entt::null;
-        EntityID newRootEntity = InstantiatePrefabAsset(prefabPath, entt::null);
-        if (newRootEntity == entt::null)
-        {
-            return false;
-        }
-
-        if (parentEntity != entt::null && registry.valid(parentEntity))
-        {
-            m_Scene.SetParent(newRootEntity, parentEntity);
-        }
-
-        m_Scene.DestroyEntity(rootEntity);
-        m_Scene.UpdateWorldTransforms();
-
-        Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
-        m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, newRootEntity);
-        m_PrefabStatusCacheRootEntity = entt::null;
-        m_PrefabOverrideCacheEntity = entt::null;
-        MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::All);
-        m_EditorStatus.Content() = "Reverted prefab: " + prefabPath.filename().string();
-        return true;
-    }
-
-    std::string TriangleLayer::GetPrefabInstanceStatus(const EntityID entity)
-    {
-        const EntityID rootEntity = FindPrefabInstanceRoot(entity);
-        auto& registry = m_Scene.GetRegistry();
-        const auto* prefabInstance = rootEntity != entt::null ? registry.try_get<PrefabInstanceComponent>(rootEntity) : nullptr;
-        if (prefabInstance == nullptr)
-        {
-            return {};
-        }
-
-        const bool sceneDirty = IsSceneDirty();
-        if (rootEntity == m_PrefabStatusCacheRootEntity &&
-            prefabInstance->prefabAsset == m_PrefabStatusCachePrefabAsset &&
-            sceneDirty == m_PrefabStatusCacheSceneDirty &&
-            (m_Time - m_PrefabStatusCacheTimeSeconds) < 0.5f)
-        {
-            return m_PrefabStatusCacheValue;
-        }
-
-        std::filesystem::path prefabPath(prefabInstance->prefabAsset);
-        if (!prefabPath.is_absolute() && Project::IsLoaded())
-        {
-            prefabPath = (Project::GetProjectRoot() / prefabPath).lexically_normal();
-        }
-
-        std::error_code ec;
-        if (!std::filesystem::exists(prefabPath, ec))
-        {
-            m_PrefabStatusCacheRootEntity = rootEntity;
-            m_PrefabStatusCachePrefabAsset = prefabInstance->prefabAsset;
-            m_PrefabStatusCacheSceneDirty = sceneDirty;
-            m_PrefabStatusCacheTimeSeconds = m_Time;
-            m_PrefabStatusCacheValue = "Source Missing";
-            return m_PrefabStatusCacheValue;
-        }
-
-        std::filesystem::path tempPath =
-            std::filesystem::temp_directory_path(ec) /
-            ("luma_prefab_compare_" + std::to_string(static_cast<std::uint32_t>(entt::to_integral(rootEntity))) + ".lumaprefab");
-        std::string error;
-        std::string statusValue = "Unknown";
-        if (!ec && PrefabSerializer::SerializePrefab(m_Scene, rootEntity, tempPath, error))
-        {
-            std::ifstream sourceInput(prefabPath, std::ios::binary);
-            std::ifstream tempInput(tempPath, std::ios::binary);
-            if (sourceInput.is_open() && tempInput.is_open())
-            {
-                const std::string sourceContents((std::istreambuf_iterator<char>(sourceInput)), std::istreambuf_iterator<char>());
-                const std::string tempContents((std::istreambuf_iterator<char>(tempInput)), std::istreambuf_iterator<char>());
-                statusValue = sourceContents == tempContents ? "Up to Date" : "Modified";
-            }
-            else
-            {
-                statusValue = "Compare Failed";
-            }
-        }
-        else
-        {
-            statusValue = "Compare Failed";
-        }
-
-        if (!tempPath.empty())
-        {
-            std::filesystem::remove(tempPath, ec);
-        }
-
-        m_PrefabStatusCacheRootEntity = rootEntity;
-        m_PrefabStatusCachePrefabAsset = prefabInstance->prefabAsset;
-        m_PrefabStatusCacheSceneDirty = sceneDirty;
-        m_PrefabStatusCacheTimeSeconds = m_Time;
-        m_PrefabStatusCacheValue = std::move(statusValue);
-        return m_PrefabStatusCacheValue;
-    }
-
-    std::vector<std::string> TriangleLayer::GetPrefabOverridePaths(const EntityID entity)
-    {
-        auto& registry = m_Scene.GetRegistry();
-        if (!registry.valid(entity))
-        {
-            return {};
-        }
-
-        const auto* prefabInstance = registry.try_get<PrefabInstanceComponent>(entity);
-        if (prefabInstance == nullptr)
-        {
-            return {};
-        }
-
-        const bool sceneDirty = IsSceneDirty();
-        if (entity == m_PrefabOverrideCacheEntity &&
-            prefabInstance->prefabAsset == m_PrefabOverrideCachePrefabAsset &&
-            prefabInstance->sourceEntityId == m_PrefabOverrideCacheSourceEntityId &&
-            sceneDirty == m_PrefabOverrideCacheSceneDirty &&
-            (m_Time - m_PrefabOverrideCacheTimeSeconds) < 0.5f)
-        {
-            return m_PrefabOverrideCacheValue;
-        }
-
-        std::filesystem::path prefabPath(prefabInstance->prefabAsset);
-        if (!prefabPath.is_absolute() && Project::IsLoaded())
-        {
-            prefabPath = (Project::GetProjectRoot() / prefabPath).lexically_normal();
-        }
-
-        std::vector<std::string> overridePaths;
-        std::error_code ec;
-        if (std::filesystem::exists(prefabPath, ec))
-        {
-            std::ifstream sourceInput(prefabPath, std::ios::binary);
-            if (sourceInput.is_open())
-            {
-                nlohmann::json sourceRoot;
-                try
-                {
-                    sourceInput >> sourceRoot;
-                }
-                catch (const std::exception&)
-                {
-                    sourceRoot = nlohmann::json {};
-                }
-
-                const std::filesystem::path tempPath =
-                    std::filesystem::temp_directory_path(ec) /
-                    ("luma_prefab_overrides_" + std::to_string(static_cast<std::uint32_t>(entt::to_integral(entity))) + ".scene");
-                std::string error;
-                if (!ec && SceneSerializer::Serialize(m_Scene, tempPath, error))
-                {
-                    std::ifstream currentInput(tempPath, std::ios::binary);
-                    if (currentInput.is_open())
-                    {
-                        nlohmann::json currentRoot;
-                        try
-                        {
-                            currentInput >> currentRoot;
-                        }
-                        catch (const std::exception&)
-                        {
-                            currentRoot = nlohmann::json {};
-                        }
-
-                        const UUID currentEntityId = registry.get<IDComponent>(entity).id;
-                        const nlohmann::json* sourceEntityJson = FindEntityJsonByUuid(sourceRoot, prefabInstance->sourceEntityId);
-                        const nlohmann::json* currentEntityJson = FindEntityJsonByUuid(currentRoot, currentEntityId);
-                        if (sourceEntityJson != nullptr && currentEntityJson != nullptr)
-                        {
-                            CollectJsonDifferencePaths(*sourceEntityJson, *currentEntityJson, "", overridePaths);
-                            std::sort(overridePaths.begin(), overridePaths.end());
-                            overridePaths.erase(std::unique(overridePaths.begin(), overridePaths.end()), overridePaths.end());
-                        }
-                    }
-
-                    std::filesystem::remove(tempPath, ec);
-                }
-            }
-        }
-
-        m_PrefabOverrideCacheEntity = entity;
-        m_PrefabOverrideCachePrefabAsset = prefabInstance->prefabAsset;
-        m_PrefabOverrideCacheSourceEntityId = prefabInstance->sourceEntityId;
-        m_PrefabOverrideCacheSceneDirty = sceneDirty;
-        m_PrefabOverrideCacheTimeSeconds = m_Time;
-        m_PrefabOverrideCacheValue = overridePaths;
-        return m_PrefabOverrideCacheValue;
-    }
-
-    bool TriangleLayer::RevertPrefabComponent(const EntityID entity, const std::string_view componentPath)
-    {
-        return RevertPrefabOverridePath(entity, componentPath);
-    }
-
-    bool TriangleLayer::RevertPrefabOverridePath(const EntityID entity, const std::string_view overridePath)
-    {
-        if (IsPlayModeActive())
-        {
-            m_EditorStatus.Content() = "Prefab override revert is unavailable during play mode.";
-            return false;
-        }
-
-        auto& registry = m_Scene.GetRegistry();
-        if (!registry.valid(entity) || !registry.all_of<IDComponent>(entity))
-        {
-            m_EditorStatus.Content() = "Select a valid prefab instance entity.";
-            return false;
-        }
-
-        const auto* prefabInstance = registry.try_get<PrefabInstanceComponent>(entity);
-        if (prefabInstance == nullptr)
-        {
-            m_EditorStatus.Content() = "Selected entity is not a prefab instance entity.";
-            return false;
-        }
-
-        std::filesystem::path prefabPath(prefabInstance->prefabAsset);
-        if (!prefabPath.is_absolute() && Project::IsLoaded())
-        {
-            prefabPath = (Project::GetProjectRoot() / prefabPath).lexically_normal();
-        }
-
-        std::ifstream sourceInput(prefabPath, std::ios::binary);
-        if (!sourceInput.is_open())
-        {
-            m_EditorStatus.Content() = "Failed to open prefab source: " + prefabPath.filename().string();
-            return false;
-        }
-
-        nlohmann::json sourceRoot;
-        try
-        {
-            sourceInput >> sourceRoot;
-        }
-        catch (const std::exception&)
-        {
-            m_EditorStatus.Content() = "Failed to parse prefab source: " + prefabPath.filename().string();
-            return false;
-        }
-
-        std::error_code ec;
-        const std::filesystem::path tempScenePath =
-            std::filesystem::temp_directory_path(ec) /
-            ("luma_prefab_patch_" + std::to_string(static_cast<std::uint32_t>(entt::to_integral(entity))) + ".scene");
-        if (ec)
-        {
-            m_EditorStatus.Content() = "Failed to allocate a temporary scene file for prefab revert.";
-            return false;
-        }
-
-        std::string error;
-        m_Scene.UpdateWorldTransforms();
-        if (!SceneSerializer::Serialize(m_Scene, tempScenePath, error))
-        {
-            m_EditorStatus.Content() = "Failed to snapshot scene for prefab revert: " + error;
-            return false;
-        }
-
-        std::ifstream currentInput(tempScenePath, std::ios::binary);
-        if (!currentInput.is_open())
-        {
-            std::filesystem::remove(tempScenePath, ec);
-            m_EditorStatus.Content() = "Failed to reopen temporary scene snapshot for prefab revert.";
-            return false;
-        }
-
-        nlohmann::json currentRoot;
-        try
-        {
-            currentInput >> currentRoot;
-        }
-        catch (const std::exception&)
-        {
-            std::filesystem::remove(tempScenePath, ec);
-            m_EditorStatus.Content() = "Failed to parse temporary scene snapshot for prefab revert.";
-            return false;
-        }
-
-        const UUID currentEntityId = registry.get<IDComponent>(entity).id;
-        const nlohmann::json* sourceEntityJson = FindEntityJsonByUuid(sourceRoot, prefabInstance->sourceEntityId);
-        nlohmann::json* currentEntityJson = const_cast<nlohmann::json*>(FindEntityJsonByUuid(currentRoot, currentEntityId));
-        if (sourceEntityJson == nullptr || currentEntityJson == nullptr)
-        {
-            std::filesystem::remove(tempScenePath, ec);
-            m_EditorStatus.Content() = "Failed to resolve matching prefab entity data for revert.";
-            return false;
-        }
-
-        const std::string normalizedPath = StripPrefabOverridePrefix(overridePath);
-        const std::vector<std::string> tokens = ParseOverridePathTokens(normalizedPath);
-        if (tokens.empty())
-        {
-            std::filesystem::remove(tempScenePath, ec);
-            m_EditorStatus.Content() = "Invalid prefab override path.";
-            return false;
-        }
-
-        if (tokens.size() == 1)
-        {
-            const std::string& componentKey = tokens.front();
-            const auto sourceIt = sourceEntityJson->find(componentKey);
-            if (sourceIt != sourceEntityJson->end())
-            {
-                (*currentEntityJson)[componentKey] = *sourceIt;
-            }
-            else
-            {
-                currentEntityJson->erase(componentKey);
-            }
-        }
-        else
-        {
-            const nlohmann::json::json_pointer pointer = BuildJsonPointer(tokens);
-            if (JsonPointerExists(*sourceEntityJson, pointer))
-            {
-                (*currentEntityJson)[pointer] = sourceEntityJson->at(pointer);
-            }
-            else
-            {
-                EraseJsonPath(*currentEntityJson, tokens);
-            }
-        }
-
-        {
-            std::ofstream output(tempScenePath, std::ios::binary | std::ios::trunc);
-            if (!output.is_open())
-            {
-                std::filesystem::remove(tempScenePath, ec);
-                m_EditorStatus.Content() = "Failed to write patched scene snapshot for prefab revert.";
-                return false;
-            }
-            output << currentRoot.dump(2);
-        }
-
-        Scene restoredScene;
-        if (!SceneSerializer::Deserialize(tempScenePath, restoredScene, error))
-        {
-            std::filesystem::remove(tempScenePath, ec);
-            m_EditorStatus.Content() = "Failed to restore scene after prefab revert: " + error;
-            return false;
-        }
-
-        const std::vector<UUID> selectedEntityUuids = CaptureSelectedEntityUuids();
-        UUID primarySelectedUuid = 0;
-        if (m_SelectedEntity != entt::null && registry.valid(m_SelectedEntity) && registry.all_of<IDComponent>(m_SelectedEntity))
-        {
-            primarySelectedUuid = registry.get<IDComponent>(m_SelectedEntity).id;
-        }
-
-        m_Scene.Swap(restoredScene);
-        m_Scene.UpdateWorldTransforms();
-        RestoreSelectedEntityUuids(selectedEntityUuids, primarySelectedUuid);
-        m_PrefabStatusCacheRootEntity = entt::null;
-        m_PrefabOverrideCacheEntity = entt::null;
-        MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::All);
-        UpdateSceneDirtyState();
-        std::filesystem::remove(tempScenePath, ec);
-
-        m_EditorStatus.Content() = "Reverted prefab override: " + normalizedPath;
-        return true;
-    }
-
-    void TriangleLayer::SelectPrefabAsset(const EntityID entity)
-    {
-        const EntityID rootEntity = FindPrefabInstanceRoot(entity);
-        const auto& registry = m_Scene.GetRegistry();
-        const auto* prefabInstance = rootEntity != entt::null ? registry.try_get<PrefabInstanceComponent>(rootEntity) : nullptr;
-        if (prefabInstance == nullptr)
-        {
-            return;
-        }
-
-        std::filesystem::path prefabPath(prefabInstance->prefabAsset);
-        if (!prefabPath.is_absolute() && Project::IsLoaded())
-        {
-            prefabPath = (Project::GetProjectRoot() / prefabPath).lexically_normal();
-        }
-
-        m_SelectedContentEntry = prefabPath;
-        m_EditorStatus.Content() = "Selected prefab asset: " + prefabPath.filename().string();
     }
 
     void TriangleLayer::DrawViewportPanel()
@@ -4429,6 +3595,7 @@ namespace Luma
             },
             [this](ImDrawList* drawList, const ImVec2& origin, const ImVec2& renderAreaSize, const EntityID lensSourceEntity)
             {
+                const auto& icons = m_EditorIconService.Icons();
                 m_ViewportDebugOverlay.Draw({
                     &m_Scene,
                     &m_SelectionState,
@@ -4436,7 +3603,8 @@ namespace Luma
                     drawList,
                     origin,
                     renderAreaSize,
-                    lensSourceEntity
+                    lensSourceEntity,
+                    icons.pointLight
                 });
             },
             [this](
@@ -4462,6 +3630,10 @@ namespace Luma
                     [this]()
                     {
                         m_SelectedContentEntry.clear();
+                    },
+                    [this]()
+                    {
+                        MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::Geometry);
                     }
                 });
             }
@@ -4477,46 +3649,6 @@ namespace Luma
     EntityID TriangleLayer::FindEditorCameraEntity() const
     {
         return Editor::FindEditorCameraEntity(m_Scene, m_SelectedEntity);
-    }
-
-    std::uint32_t TriangleLayer::ComputeRequestedMeshLod(
-        const TransformComponent& transform,
-        const MeshRendererComponent& meshRenderer) const
-    {
-        Editor::MeshStreamingGeometryContext context {};
-        context.cameraPosition = m_ViewportController.Camera().position;
-        return m_MeshStreamingGeometryService.ComputeRequestedMeshLod(context, transform, meshRenderer);
-    }
-
-    const PrimitiveMeshData* TriangleLayer::ResolveMeshRendererGeometry(
-        const TransformComponent& transform,
-        const MeshRendererComponent& meshRenderer)
-    {
-        Editor::MeshStreamingGeometryContext context {};
-        context.primitiveMeshLod = m_PrimitiveMeshLod;
-        context.cameraPosition = m_ViewportController.Camera().position;
-        context.projectLoaded = Project::IsLoaded();
-        context.projectAssetsPath = Project::GetAssetsPath();
-        context.projectRoot = Project::GetProjectRoot();
-        context.streamingService = &m_ResourceStreamingService;
-        context.importedSceneParts = &m_ImportedSceneParts;
-        context.streamedMeshAssets = &m_StreamedMeshAssets;
-        context.logImportError =
-            [this](const std::string_view message)
-            {
-                AddConsoleLine(LogLevel::Error, "Import", message, message);
-            };
-        context.logStreamingError =
-            [this](const std::string_view message)
-            {
-                AddConsoleLine(LogLevel::Error, "Streaming", message, message);
-            };
-        context.logStreamingWarn =
-            [this](const std::string_view message)
-            {
-                AddConsoleLine(LogLevel::Warn, "Streaming", message, message);
-            };
-        return m_MeshStreamingGeometryService.ResolveMeshRendererGeometry(context, transform, meshRenderer);
     }
 
     void TriangleLayer::RebuildScenePrimitiveMesh()
@@ -4542,59 +3674,8 @@ namespace Luma
         const bool collectRenderSources = geometryDirty || materialsDirty;
 
         auto& registry = m_Scene.GetRegistry();
-        Editor::SceneRenderCacheBuildContext buildContext {};
-        buildContext.scene = &m_Scene;
-        buildContext.showGrid = m_ViewportController.ShowGrid();
-        buildContext.skyEnvironmentLinearPixels = &m_SkyEnvironmentLinearPixels;
-        buildContext.skyEnvironmentWidth = m_SkyEnvironmentWidth;
-        buildContext.skyEnvironmentHeight = m_SkyEnvironmentHeight;
-        buildContext.streamedMeshAssets = &m_StreamedMeshAssets;
-        buildContext.collectRenderSources = collectRenderSources;
-        buildContext.buildScenePrimitiveMesh = buildScenePrimitiveMesh;
-        buildContext.buildSkyPrimitiveMesh = buildSkyPrimitiveMesh;
-        buildContext.findPrimarySkyEntity =
-            [this]()
-            {
-                return FindPrimarySkyEntity();
-            };
-        buildContext.resolveImportedSceneParts =
-            [this](const std::string& sourcePath) -> ImportedScenePartsState*
-            {
-                Editor::MeshStreamingGeometryContext context {};
-                context.projectLoaded = Project::IsLoaded();
-                context.projectAssetsPath = Project::GetAssetsPath();
-                context.projectRoot = Project::GetProjectRoot();
-                context.importedSceneParts = &m_ImportedSceneParts;
-                context.logImportError =
-                    [this](const std::string_view message)
-                    {
-                        AddConsoleLine(LogLevel::Error, "Import", message, message);
-                    };
-                return m_MeshStreamingGeometryService.ResolveImportedSceneParts(context, sourcePath);
-            };
-        buildContext.resolveMeshRendererGeometry =
-            [this](const TransformComponent& transform, const MeshRendererComponent& meshRenderer)
-            {
-                return ResolveMeshRendererGeometry(transform, meshRenderer);
-            };
-        buildContext.computeRequestedMeshLod =
-            [this](const TransformComponent& transform, const MeshRendererComponent& meshRenderer)
-            {
-                return ComputeRequestedMeshLod(transform, meshRenderer);
-            };
-        buildContext.computeSkyColor =
-            [this](const std::array<float, 3>& direction, const SkyLightComponent& skyLight, const bool hasEnvironment)
-            {
-                const Vec3 linearSkyColor = ComputeSkyColorLikeLuma(
-                    { direction[0], direction[1], direction[2] },
-                    skyLight,
-                    hasEnvironment,
-                    m_SkyEnvironmentLinearPixels,
-                    m_SkyEnvironmentWidth,
-                    m_SkyEnvironmentHeight);
-                return std::array<float, 3> { linearSkyColor.x, linearSkyColor.y, linearSkyColor.z };
-            };
-
+        Editor::SceneRenderCacheBuildContext buildContext =
+            BuildSceneRenderCacheBuildContext(collectRenderSources, buildScenePrimitiveMesh, buildSkyPrimitiveMesh);
         Editor::SceneRenderCacheBuildResult buildResult = m_SceneRenderCacheBuilder.Build(buildContext);
         using PendingSceneRenderSource = Editor::PendingSceneRenderSource;
         auto& vertices = buildResult.vertices;
@@ -4721,69 +3802,8 @@ namespace Luma
             return;
         }
 
-        Editor::SceneRenderItemAssemblyContext assemblyContext {};
-        assemblyContext.pendingRenderSources = &pendingRenderSources;
-        assemblyContext.renderItemsStateHash = renderItemsStateHash;
-        assemblyContext.buildImportedMaterialProxy =
-            [this](const Assets::MeshMaterialInfo& sourceMaterial, const std::filesystem::path& sourceMaterialPath)
-            {
-                return BuildImportedMaterialRenderProxy(sourceMaterial, sourceMaterialPath);
-            };
-        assemblyContext.tryBuildSlotMaterialOverride =
-            [this](const MeshRendererComponent& meshRenderer, const std::size_t materialSlotIndex, MaterialRenderProxy& outProxy)
-            {
-                const std::string* slotOverridePath =
-                    ResolveMeshRendererMaterialOverride(meshRenderer, materialSlotIndex);
-                if (slotOverridePath == nullptr || slotOverridePath->empty())
-                {
-                    return false;
-                }
-
-                const std::filesystem::path assetPath = ResolveSkyAssetPath(*slotOverridePath);
-                return m_MaterialRenderProxyCacheService.TryGetProxy(
-                    {
-                        [](MaterialComponent& material)
-                        {
-                            InitializeDefaultMaterialComponent(material);
-                        },
-                        [this](const std::filesystem::path& path, MaterialComponent& material, std::string& outError) -> bool
-                        {
-                            return LoadMaterialComponentFromJsonAsset(path, material, outError);
-                        },
-                        [](const MaterialComponent& material, const std::filesystem::path& path) -> MaterialRenderProxy
-                        {
-                            return BuildMaterialRenderProxyFromComponent(material, path);
-                        }
-                    },
-                    assetPath,
-                    outProxy);
-            };
-        assemblyContext.tryBuildEntityMaterialOverride =
-            [this](const EntityID entity, const Assets::MeshMaterialInfo* sourceMaterial, MaterialRenderProxy& outProxy)
-            {
-                const MaterialComponent* materialComponent = m_Scene.GetRegistry().try_get<MaterialComponent>(entity);
-                if (materialComponent == nullptr)
-                {
-                    return false;
-                }
-
-                MaterialComponent defaultMaterial {};
-                InitializeDefaultMaterialComponent(defaultMaterial);
-                const bool shouldOverrideSourceMaterial =
-                    sourceMaterial == nullptr ||
-                    !MaterialPropertiesEqual(*materialComponent, defaultMaterial) ||
-                    (!TrimCopy(materialComponent->sharedMaterial).empty() &&
-                     materialComponent->sharedMaterial != std::string(kDefaultGridMaterialAsset));
-                if (!shouldOverrideSourceMaterial)
-                {
-                    return false;
-                }
-
-                outProxy = BuildMaterialRenderProxyFromComponent(
-                    *materialComponent,
-                    ResolveSkyAssetPath(materialComponent->sharedMaterial));
-                return true;
-            };
+        Editor::SceneRenderItemAssemblyContext assemblyContext =
+            BuildSceneRenderItemAssemblyContext(pendingRenderSources, renderItemsStateHash);
 
         m_SceneRenderItemAssemblyService.BuildInto(
             assemblyContext,
@@ -4838,58 +3858,6 @@ namespace Luma
         ++m_SceneRenderItemsRevision;
 
         m_SceneRenderCacheStateService.FinalizeBuild(cacheStateContext);
-    }
-
-    void TriangleLayer::HandleStreamingEvent(const Assets::StreamEvent& event)
-    {
-        const bool affectsSceneRenderCache =
-            m_MeshStreamingGeometryService.InvalidateFromStreamingEvent(event, m_StreamedMeshAssets);
-
-        switch (event.type)
-        {
-        case Assets::StreamEventType::Queued:
-        case Assets::StreamEventType::Started:
-        case Assets::StreamEventType::Retargeted:
-            if (event.handle != 0)
-            {
-                m_StreamingActiveHandles.insert(event.handle);
-                m_StreamingTaskBatchSize = std::max<std::uint32_t>(
-                    m_StreamingTaskBatchSize,
-                    static_cast<std::uint32_t>(m_StreamingActiveHandles.size()));
-            }
-            break;
-        case Assets::StreamEventType::Completed:
-        case Assets::StreamEventType::Failed:
-        case Assets::StreamEventType::Cancelled:
-        case Assets::StreamEventType::Released:
-            if (event.handle != 0)
-            {
-                m_StreamingActiveHandles.erase(event.handle);
-            }
-            break;
-        case Assets::StreamEventType::Evicted:
-        case Assets::StreamEventType::BudgetUpdated:
-            break;
-        }
-
-        if (!event.message.empty())
-        {
-            m_StreamingTaskLastMessage = event.message;
-        }
-
-        if (event.type == Assets::StreamEventType::Failed)
-        {
-            AddConsoleLine(LogLevel::Error, "Streaming", event.message, event.message);
-        }
-        else if (event.type == Assets::StreamEventType::Evicted)
-        {
-            AddConsoleLine(LogLevel::Warn, "Streaming", event.message, event.message);
-        }
-
-        if (affectsSceneRenderCache)
-        {
-            MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::Geometry);
-        }
     }
 
     void TriangleLayer::UpdateStreamingTaskState()
@@ -4977,60 +3945,6 @@ namespace Luma
         m_PostProcessBlendService.BuildBlendedView(m_Scene, cameraWorldPosition, outPostProcess);
     }
 
-    std::filesystem::path TriangleLayer::ResolveSkyAssetPath(const std::string& path) const
-    {
-        if (path.empty())
-        {
-            return {};
-        }
-
-        std::filesystem::path inputPath(path);
-        std::error_code ec;
-        if (inputPath.is_absolute())
-        {
-            const std::filesystem::path absolute = std::filesystem::weakly_canonical(inputPath, ec);
-            return ec ? inputPath.lexically_normal() : absolute;
-        }
-
-        for (const Editor::ContentBrowserRootState& root : m_ContentRoots)
-        {
-            if (root.path.empty())
-            {
-                continue;
-            }
-
-            const std::filesystem::path candidate = root.path / inputPath;
-            if (std::filesystem::exists(candidate, ec) && !ec)
-            {
-                const std::filesystem::path resolved = std::filesystem::weakly_canonical(candidate, ec);
-                return ec ? candidate.lexically_normal() : resolved;
-            }
-        }
-
-        return m_SkyEnvironmentService.ResolveAssetPath(
-            path,
-            Project::IsLoaded(),
-            Project::GetProjectRoot(),
-            Project::GetAssetsPath());
-    }
-
-    Editor::SceneRenderCacheStateContext TriangleLayer::BuildSceneRenderCacheStateContext() const
-    {
-        Editor::SceneRenderCacheStateContext context {};
-        context.scene = &m_Scene;
-        context.viewportGridEnabled = m_ViewportController.ShowGrid();
-        context.skyboxSourcePath = &m_SkyboxSourcePath;
-        context.renderSceneCacheDirtyFlags =
-            const_cast<Editor::SceneRenderCacheDirtyFlags*>(&m_RenderSceneCacheDirtyFlags);
-        context.lastViewportGridEnabled = const_cast<bool*>(&m_LastViewportGridEnabled);
-        context.lastSkyMeshSignature = const_cast<std::string*>(&m_LastSkyMeshSignature);
-        context.findPrimarySkyEntity = [this]()
-        {
-            return FindPrimarySkyEntity();
-        };
-        return context;
-    }
-
     Editor::SkyPreviewTextureHostContext TriangleLayer::BuildSkyPreviewTextureHostContext()
     {
         Editor::SkyPreviewTextureHostContext context {};
@@ -5074,301 +3988,6 @@ namespace Luma
             return std::array<float, 3> { skyColor.x, skyColor.y, skyColor.z };
         };
         return context;
-    }
-
-    bool TriangleLayer::LoadSceneFromPath(const std::filesystem::path& scenePath)
-    {
-        Editor::SceneDocumentHostContext context {};
-        context.scene = &m_Scene;
-        context.sceneDocument = &m_SceneDocument;
-        context.contentStatus = &m_EditorStatus.Content();
-        context.selectedContentEntry = &m_SelectedContentEntry;
-        context.afterLoad = [this]()
-        {
-            m_SceneEntityUtilityService.ClearEntitySelection(m_SelectionState);
-            m_ViewportController.ResetCameraToDefault();
-
-            const auto roots = m_Scene.GetRootEntities();
-            if (!roots.empty())
-            {
-                Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
-                m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, roots.front());
-            }
-        };
-
-        const bool loaded = m_SceneDocumentHostService.LoadSceneFromPath(context, scenePath);
-        if (loaded)
-        {
-            MarkSceneRenderCacheDirty(Editor::SceneRenderCacheDirtyFlags::All);
-        }
-        return loaded;
-    }
-
-    bool TriangleLayer::SaveSceneToPath(const std::filesystem::path& scenePath)
-    {
-        Editor::SceneDocumentHostContext context {};
-        context.scene = &m_Scene;
-        context.sceneDocument = &m_SceneDocument;
-        context.contentStatus = &m_EditorStatus.Content();
-        context.selectedContentEntry = &m_SelectedContentEntry;
-        context.beforeSave = [this]()
-        {
-            m_Scene.UpdateWorldTransforms();
-        };
-        context.afterSave = [this]()
-        {
-            Editor::ContentBrowserHostFacadeContext contentBrowserContext = BuildContentBrowserHostFacadeContext();
-            m_ContentBrowserHostFacadeService.InvalidateFolderTreeCache(contentBrowserContext);
-            m_ContentBrowserHostFacadeService.RefreshContentEntries(contentBrowserContext);
-        };
-
-        return m_SceneDocumentHostService.SaveSceneToPath(context, scenePath);
-    }
-
-    bool TriangleLayer::SetProjectStartScene(const std::filesystem::path& scenePath)
-    {
-        return m_SceneFileService.SetProjectStartScene(
-            scenePath,
-            m_EditorStatus.ProjectConfig(),
-            [this]()
-            {
-                m_ProjectSettingsPanel.InvalidateDraft();
-            });
-    }
-
-    bool TriangleLayer::CaptureSceneSnapshot(std::string& outSnapshot, std::string& outError) const
-    {
-        Editor::SceneDocumentHostContext context {};
-        context.scene = const_cast<Scene*>(&m_Scene);
-        context.sceneDocument = const_cast<Editor::SceneDocument*>(&m_SceneDocument);
-        return m_SceneDocumentHostService.CaptureSceneSnapshot(context, outSnapshot, outError);
-    }
-
-    bool TriangleLayer::IsSceneDirty()
-    {
-        Editor::SceneDocumentHostContext context {};
-        context.scene = &m_Scene;
-        context.sceneDocument = &m_SceneDocument;
-        return m_SceneDocumentHostService.IsSceneDirty(context);
-    }
-
-    void TriangleLayer::UpdateSceneDirtyState()
-    {
-        Editor::SceneDocumentHostContext context {};
-        context.scene = &m_Scene;
-        context.sceneDocument = &m_SceneDocument;
-        m_SceneDocumentHostService.UpdateSceneDirtyState(context);
-    }
-
-    void TriangleLayer::CreateNewScene()
-    {
-        Editor::SceneDocumentHostContext context {};
-        context.scene = &m_Scene;
-        context.sceneDocument = &m_SceneDocument;
-        context.contentStatus = &m_EditorStatus.Content();
-        context.selectedContentEntry = &m_SelectedContentEntry;
-        context.afterNewScene = [this]()
-        {
-            m_SelectedContentEntry.clear();
-            SeedDefaultSceneEntities();
-        };
-
-        m_SceneDocumentHostService.CreateNewScene(context);
-    }
-
-    void TriangleLayer::RequestPendingSceneActionClose()
-    {
-        Editor::SceneActionHostContext context {};
-        context.actionService = &m_SceneActionService;
-        m_SceneActionHostService.RequestPendingClose(context);
-    }
-
-    void TriangleLayer::RequestNewScene()
-    {
-        if (IsPlayModeActive() && !StopPlayMode())
-        {
-            return;
-        }
-
-        Editor::SceneActionHostContext context {};
-        context.actionService = &m_SceneActionService;
-        context.isSceneDirty = [this]() -> bool
-        {
-            return IsSceneDirty();
-        };
-        context.createNewScene = [this]()
-        {
-            CreateNewScene();
-        };
-        m_SceneActionHostService.RequestNewScene(context);
-    }
-
-    void TriangleLayer::RequestLoadScene(const std::filesystem::path& scenePath)
-    {
-        if (IsPlayModeActive() && !StopPlayMode())
-        {
-            return;
-        }
-
-        Editor::SceneActionHostContext context {};
-        context.actionService = &m_SceneActionService;
-        context.isSceneDirty = [this]() -> bool
-        {
-            return IsSceneDirty();
-        };
-        context.loadScene = [this](const std::filesystem::path& requestedScenePath)
-        {
-            LoadSceneFromPath(requestedScenePath);
-        };
-        m_SceneActionHostService.RequestLoadScene(context, scenePath);
-    }
-
-    void TriangleLayer::RequestReloadScene()
-    {
-        if (IsPlayModeActive() && !StopPlayMode())
-        {
-            return;
-        }
-
-        Editor::SceneActionHostContext context {};
-        context.actionService = &m_SceneActionService;
-        context.sceneDocument = &m_SceneDocument;
-        context.isSceneDirty = [this]() -> bool
-        {
-            return IsSceneDirty();
-        };
-        context.loadScene = [this](const std::filesystem::path& requestedScenePath)
-        {
-            LoadSceneFromPath(requestedScenePath);
-        };
-        m_SceneActionHostService.RequestReloadScene(context);
-    }
-
-    bool TriangleLayer::SaveActiveScene()
-    {
-        if (IsPlayModeActive() && !StopPlayMode())
-        {
-            return false;
-        }
-
-        Editor::SceneActionHostContext context {};
-        context.sceneFileService = &m_SceneFileService;
-        context.sceneDocument = &m_SceneDocument;
-        context.contentStatus = &m_EditorStatus.Content();
-        context.saveSceneToPath = [this](const std::filesystem::path& scenePath) -> bool
-        {
-            return SaveSceneToPath(scenePath);
-        };
-        return m_SceneActionHostService.SaveActiveScene(context);
-    }
-
-    bool TriangleLayer::OpenSaveSceneAsPrompt(std::string_view suggestedName)
-    {
-        if (IsPlayModeActive() && !StopPlayMode())
-        {
-            return false;
-        }
-
-        Editor::SceneActionHostContext context {};
-        context.sceneFileService = &m_SceneFileService;
-        context.sceneDocument = &m_SceneDocument;
-        context.contentStatus = &m_EditorStatus.Content();
-        context.saveSceneToPath = [this](const std::filesystem::path& scenePath) -> bool
-        {
-            return SaveSceneToPath(scenePath);
-        };
-        return m_SceneActionHostService.OpenSaveSceneAsPrompt(context, suggestedName);
-    }
-
-    void TriangleLayer::DrawUnsavedScenePrompt()
-    {
-        Editor::SceneActionHostContext context {};
-        context.actionService = &m_SceneActionService;
-        context.sceneFileService = &m_SceneFileService;
-        context.sceneDocument = &m_SceneDocument;
-        context.contentStatus = &m_EditorStatus.Content();
-        context.createNewScene = [this]()
-        {
-            CreateNewScene();
-        };
-        context.loadScene = [this](const std::filesystem::path& scenePath)
-        {
-            LoadSceneFromPath(scenePath);
-        };
-        context.saveSceneToPath = [this](const std::filesystem::path& scenePath) -> bool
-        {
-            return SaveSceneToPath(scenePath);
-        };
-        m_SceneActionHostService.DrawUnsavedScenePrompt(context);
-    }
-
-    std::filesystem::path TriangleLayer::ResolveScenePath(const std::string& scenePath) const
-    {
-        return m_SceneFileService.ResolveScenePath(m_SceneDocument, scenePath);
-    }
-
-    std::filesystem::path TriangleLayer::GetDefaultScenePath() const
-    {
-        return m_SceneFileService.GetDefaultScenePath(m_SceneDocument);
-    }
-
-    std::filesystem::path TriangleLayer::BuildScenePathFromName(const std::string_view sceneName) const
-    {
-        return m_SceneFileService.BuildScenePathFromName(m_SceneDocument, sceneName);
-    }
-
-    std::string TriangleLayer::GetActiveSceneDisplayName() const
-    {
-        return m_SceneFileService.GetActiveSceneDisplayName(m_SceneDocument);
-    }
-
-    void TriangleLayer::RefreshWindowTitle()
-    {
-        Editor::SceneDocumentHostContext context {};
-        context.sceneDocument = &m_SceneDocument;
-        m_SceneDocumentHostService.RefreshWindowTitle(context);
-    }
-
-    void TriangleLayer::SeedDefaultSceneEntities()
-    {
-        Editor::SceneBootstrapContext context {};
-        context.scene = &m_Scene;
-        context.selectedEntity = m_SelectedEntity;
-        context.isEntitySelected = [this](const EntityID entity) -> bool
-        {
-            return m_SceneEntityUtilityService.IsEntitySelected(m_SelectionState, entity);
-        };
-        context.clearEntitySelection = [this]()
-        {
-            m_SceneEntityUtilityService.ClearEntitySelection(m_SelectionState);
-        };
-        context.selectSingleEntity = [this](const EntityID entity)
-        {
-            Editor::SceneEntitySelectionContext selectionContext { &m_Scene, &m_SelectionState, &m_SelectedContentEntry };
-            m_SceneEntityUtilityService.SelectSingleEntity(selectionContext, entity);
-        };
-        context.initializeSkyLightDefaults = [this](SkyLightComponent& skyLight)
-        {
-            m_SceneEntityUtilityService.InitializeSkyLightDefaults(skyLight);
-        };
-        context.resetViewportCamera = [this]()
-        {
-            m_ViewportController.ResetCameraToDefault();
-        };
-
-        m_SceneBootstrapService.SeedDefaultSceneEntities(context);
-    }
-
-    bool TriangleLayer::IsSelectionValid() const
-    {
-        Editor::SceneBootstrapContext context {};
-        context.scene = const_cast<Scene*>(&m_Scene);
-        context.selectedEntity = m_SelectedEntity;
-        context.isEntitySelected = [this](const EntityID entity) -> bool
-        {
-            return m_SceneEntityUtilityService.IsEntitySelected(m_SelectionState, entity);
-        };
-        return m_SceneBootstrapService.IsSelectionValid(context);
     }
 
     bool TriangleLayer::IsPlayModeActive() const

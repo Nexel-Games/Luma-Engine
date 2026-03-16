@@ -18,6 +18,7 @@
 #include "Luma/Scene/IDComponent.h"
 #include "Luma/Scene/JointComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
+#include "Luma/Scene/PointLightComponent.h"
 #include "Luma/Scene/PhysicsEventsComponent.h"
 #include "Luma/Scene/RagdollComponent.h"
 #include "Luma/Scene/RelationshipComponent.h"
@@ -334,6 +335,28 @@ namespace Luma::Editor
             drawSegment(center + Vec3 { 0.0f, 0.0f, radius }, center - Vec3 { 0.0f, 0.0f, radius }, color, thickness);
         };
 
+        auto drawBillboardIcon = [&](const Vec3& worldPosition, void* texture, const float size, const ImU32 fallbackColor)
+        {
+            ImVec2 screenPosition {};
+            if (!projectWorldToScreen(worldPosition, screenPosition))
+            {
+                return;
+            }
+
+            const ImVec2 halfSize(size * 0.5f, size * 0.5f);
+            if (texture != nullptr)
+            {
+                context.drawList->AddImage(
+                    reinterpret_cast<ImTextureID>(texture),
+                    ImVec2(screenPosition.x - halfSize.x, screenPosition.y - halfSize.y),
+                    ImVec2(screenPosition.x + halfSize.x, screenPosition.y + halfSize.y));
+            }
+            else
+            {
+                context.drawList->AddCircleFilled(screenPosition, halfSize.x, fallbackColor, 16);
+            }
+        };
+
         auto worldPositionOf = [](const TransformComponent& transform) -> Vec3
         {
             return { transform.worldPosition[0], transform.worldPosition[1], transform.worldPosition[2] };
@@ -625,6 +648,34 @@ namespace Luma::Editor
                     drawSegment(nearCorners[index], farCorners[index], color, thickness);
                 }
             }
+        }
+
+        const auto pointLightView = registry.view<TransformComponent, PointLightComponent>();
+        for (const EntityID entity : pointLightView)
+        {
+            const auto& transform = pointLightView.get<TransformComponent>(entity);
+            const auto& pointLight = pointLightView.get<PointLightComponent>(entity);
+            if (!pointLight.active)
+            {
+                continue;
+            }
+
+            const bool selected = isSelected(entity);
+            const Vec3 center = worldPositionOf(transform);
+            const ImU32 color = selected ? IM_COL32(255, 226, 138, 255) : IM_COL32(255, 210, 112, 220);
+            const float iconSize = selected ? 22.0f : 18.0f;
+            drawBillboardIcon(center, context.pointLightIconTexture, iconSize, color);
+            drawCross(center, selected ? 0.16f : 0.11f, color, selected ? 1.8f : 1.3f);
+
+            if (!selected)
+            {
+                continue;
+            }
+
+            const float radius = std::max(pointLight.range, 0.05f);
+            drawWireCircle(center, Vec3 { 1.0f, 0.0f, 0.0f }, Vec3 { 0.0f, 1.0f, 0.0f }, radius, color);
+            drawWireCircle(center, Vec3 { 1.0f, 0.0f, 0.0f }, Vec3 { 0.0f, 0.0f, 1.0f }, radius, color);
+            drawWireCircle(center, Vec3 { 0.0f, 1.0f, 0.0f }, Vec3 { 0.0f, 0.0f, 1.0f }, radius, color);
         }
 
         const auto colliderView = registry.view<TransformComponent, ColliderComponent>();

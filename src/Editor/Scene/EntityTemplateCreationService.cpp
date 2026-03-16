@@ -7,6 +7,7 @@
 #include "Luma/Scene/DirectionalLightComponent.h"
 #include "Luma/Scene/MaterialComponent.h"
 #include "Luma/Scene/MeshRendererComponent.h"
+#include "Luma/Scene/PointLightComponent.h"
 #include "Luma/Scene/SkyLightComponent.h"
 #include "Luma/Scene/TransformComponent.h"
 
@@ -38,6 +39,8 @@ namespace Luma::Editor
                 return "Camera";
             case EntityTemplateKind::DirectionalLight:
                 return "Directional Light";
+            case EntityTemplateKind::PointLight:
+                return "Point Light";
             case EntityTemplateKind::SkyLight:
                 return "Sky Light";
             case EntityTemplateKind::Player:
@@ -84,6 +87,13 @@ namespace Luma::Editor
         else if (templateKind == EntityTemplateKind::DirectionalLight)
         {
             entity.AddComponent<DirectionalLightComponent>();
+        }
+        else if (templateKind == EntityTemplateKind::PointLight)
+        {
+            auto& transform = entity.GetComponent<TransformComponent>();
+            transform.position = { 0.0f, 1.0f, 0.0f };
+            transform.dirty = true;
+            entity.AddComponent<PointLightComponent>();
         }
         else if (templateKind == EntityTemplateKind::SkyLight)
         {

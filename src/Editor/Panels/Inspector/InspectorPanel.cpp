@@ -72,6 +72,8 @@ namespace Luma::Editor
                 context.physicsBackendName,
                 context.physicsSimulationEnabled,
                 context.availableTags,
+                context.availableLayers,
+                context.markSceneRenderCacheDirty,
                 context.createPrefabFromEntity,
                 context.applyPrefabInstance,
                 context.revertPrefabInstance,
@@ -90,6 +92,7 @@ namespace Luma::Editor
                 context.selectedEntity,
                 context.listContentRootPaths,
                 context.ensurePrimitiveCollider,
+                context.markSceneRenderCacheDirty,
                 context.markSceneGeometryDirty,
                 context.markSceneMaterialsDirty
             });
@@ -111,6 +114,7 @@ namespace Luma::Editor
             context.cameraLightingPanel->Draw({
                 context.scene,
                 context.selectedEntity,
+                context.markSceneRenderCacheDirty,
                 context.setContentStatus
             });
         }

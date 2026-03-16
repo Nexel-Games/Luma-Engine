@@ -157,6 +157,21 @@ namespace Luma::Editor
                 renderItem.material.opacity = 1.0f;
             }
 
+            if (context.tryBuildBakedLightmap)
+            {
+                BakedLightmapData bakedLightmap {};
+                if (context.tryBuildBakedLightmap(
+                        pending.entity,
+                        transform,
+                        meshRenderer,
+                        geometry,
+                        renderItem.material,
+                        bakedLightmap))
+                {
+                    renderItem.bakedLightmap = std::move(bakedLightmap);
+                }
+            }
+
             renderItem.revision = context.renderItemsStateHash == 0 ? 1 : context.renderItemsStateHash;
             outRenderItems.push_back(std::move(renderItem));
         }

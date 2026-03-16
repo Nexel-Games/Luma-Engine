@@ -11,6 +11,7 @@ namespace Luma::Editor
         Empty = 0,
         Camera,
         DirectionalLight,
+        PointLight,
         SkyLight,
         Player,
         AudioSource,

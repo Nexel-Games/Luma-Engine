@@ -15,6 +15,8 @@ namespace Luma::Editor
         std::string_view physicsBackendName;
         bool* physicsSimulationEnabled = nullptr;
         const std::vector<std::string>* availableTags = nullptr;
+        const std::vector<std::string>* availableLayers = nullptr;
+        std::function<void()> markSceneRenderCacheDirty;
         std::function<bool(EntityID)> createPrefabFromEntity;
         std::function<bool(EntityID)> applyPrefabInstance;
         std::function<bool(EntityID)> revertPrefabInstance;

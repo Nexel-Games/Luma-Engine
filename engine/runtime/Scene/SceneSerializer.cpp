@@ -271,6 +271,7 @@ namespace Luma
                 entityJson["uuid"] = id.id;
                 entityJson["name"] = tag.name;
                 entityJson["tag"] = tag.tag;
+                entityJson["layer"] = tag.layer;
 
                 if (relationship.parent != entt::null &&
                     registry.valid(relationship.parent) &&
@@ -301,6 +302,7 @@ namespace Luma
                         { "lodFarDistance", component->lodFarDistance },
                         { "streamSectionsByDistance", component->streamSectionsByDistance },
                         { "sectionLoadDistance", component->sectionLoadDistance },
+                        { "staticLighting", component->staticLighting },
                         { "color", ArrayToJson(component->color) }
                     };
                 }
@@ -456,10 +458,20 @@ namespace Luma
                     entityJson["pointLight"] = {
                         { "active", component->active },
                         { "color", ArrayToJson(component->color) },
+                        { "mode", static_cast<std::uint32_t>(component->mode) },
+                        { "temperature", component->temperature },
                         { "intensity", component->intensity },
+                        { "indirectMultiplier", component->indirectMultiplier },
                         { "range", component->range },
+                        { "attenuation", component->attenuation },
                         { "castShadows", component->castShadows },
-                        { "volumetricScatteringIntensity", component->volumetricScatteringIntensity }
+                        { "shadowType", static_cast<std::uint32_t>(component->shadowType) },
+                        { "shadowBias", component->shadowBias },
+                        { "shadowResolution", component->shadowResolution },
+                        { "bakedShadowRadius", component->bakedShadowRadius },
+                        { "drawHalo", component->drawHalo },
+                        { "renderMode", static_cast<std::uint32_t>(component->renderMode) },
+                        { "cullingMask", component->cullingMask }
                     };
                 }
 
@@ -910,6 +922,7 @@ namespace Luma
                 UUID uuid = 0;
                 std::string name = "Entity";
                 std::string tag = "Untagged";
+                std::string layer = "Default";
                 UUID parentUuid = 0;
                 const json* data = nullptr;
             };
@@ -944,6 +957,7 @@ namespace Luma
                 record.tag = entityJson.contains("name")
                     ? entityJson.value("tag", std::string("Untagged"))
                     : std::string("Untagged");
+                record.layer = entityJson.value("layer", std::string("Default"));
                 record.parentUuid = entityJson.value("parent", static_cast<UUID>(0));
                 record.data = &entityJson;
                 records.push_back(std::move(record));
@@ -985,6 +999,7 @@ namespace Luma
                 auto& tag = entity.GetComponent<TagComponent>();
                 tag.name = record.name;
                 tag.tag = record.tag;
+                tag.layer = record.layer;
 
                 if (const auto transformIt = entityJson.find("transform");
                     transformIt != entityJson.end() && transformIt->is_object())
@@ -1016,6 +1031,7 @@ namespace Luma
                     component.lodFarDistance = componentIt->value("lodFarDistance", component.lodFarDistance);
                     component.streamSectionsByDistance = componentIt->value("streamSectionsByDistance", component.streamSectionsByDistance);
                     component.sectionLoadDistance = componentIt->value("sectionLoadDistance", component.sectionLoadDistance);
+                    component.staticLighting = componentIt->value("staticLighting", component.staticLighting);
                     if (!ReadArrayField(*componentIt, "color", component.color, outError))
                     {
                         return false;
@@ -1213,11 +1229,25 @@ namespace Luma
                 {
                     auto& component = entity.AddOrReplaceComponent<PointLightComponent>();
                     component.active = componentIt->value("active", component.active);
+                    component.mode =
+                        static_cast<PointLightMode>(componentIt->value("mode", static_cast<std::uint32_t>(component.mode)));
+                    component.temperature = componentIt->value("temperature", component.temperature);
                     component.intensity = componentIt->value("intensity", component.intensity);
+                    component.indirectMultiplier =
+                        componentIt->value("indirectMultiplier", component.indirectMultiplier);
                     component.range = componentIt->value("range", component.range);
+                    component.attenuation = componentIt->value("attenuation", component.attenuation);
                     component.castShadows = componentIt->value("castShadows", component.castShadows);
-                    component.volumetricScatteringIntensity =
-                        componentIt->value("volumetricScatteringIntensity", component.volumetricScatteringIntensity);
+                    component.shadowType = static_cast<PointLightShadowType>(
+                        componentIt->value("shadowType", static_cast<std::uint32_t>(component.shadowType)));
+                    component.shadowBias = componentIt->value("shadowBias", component.shadowBias);
+                    component.shadowResolution = componentIt->value("shadowResolution", component.shadowResolution);
+                    component.bakedShadowRadius =
+                        componentIt->value("bakedShadowRadius", component.bakedShadowRadius);
+                    component.drawHalo = componentIt->value("drawHalo", component.drawHalo);
+                    component.renderMode = static_cast<PointLightRenderMode>(
+                        componentIt->value("renderMode", static_cast<std::uint32_t>(component.renderMode)));
+                    component.cullingMask = componentIt->value("cullingMask", component.cullingMask);
                     if (!ReadArrayField(*componentIt, "color", component.color, outError))
                     {
                         return false;

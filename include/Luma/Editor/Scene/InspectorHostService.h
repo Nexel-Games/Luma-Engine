@@ -53,6 +53,7 @@ namespace Luma::Editor
         const std::vector<ContentBrowserRootState>* contentRoots = nullptr;
         const std::unordered_map<std::string, MeshStreamingImportedScenePartsState>* importedSceneParts = nullptr;
         const std::vector<std::string>* availableTags = nullptr;
+        const std::vector<std::string>* availableLayers = nullptr;
         MaterialTextureAssetPickerService* materialTextureAssetPickerService = nullptr;
         MaterialTextureAssetPickerPanel* materialTextureAssetPickerPanel = nullptr;
         InspectorPanel* panel = nullptr;

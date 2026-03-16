@@ -75,6 +75,58 @@ namespace Luma::Editor
             return value * invLength;
         }
 
+        std::array<float, 3> KelvinToRgb(const float kelvin)
+        {
+            const float temperature = std::clamp(kelvin, 1000.0f, 40000.0f) / 100.0f;
+            float red = 255.0f;
+            float green = 255.0f;
+            float blue = 255.0f;
+
+            if (temperature > 66.0f)
+            {
+                red = 329.698727446f * std::pow(temperature - 60.0f, -0.1332047592f);
+                green = 288.1221695283f * std::pow(temperature - 60.0f, -0.0755148492f);
+            }
+            else
+            {
+                green = 99.4708025861f * std::log(std::max(temperature, 1.0f)) - 161.1195681661f;
+            }
+
+            if (temperature < 66.0f)
+            {
+                if (temperature <= 19.0f)
+                {
+                    blue = 0.0f;
+                }
+                else
+                {
+                    blue = 138.5177312231f * std::log(std::max(temperature - 10.0f, 1.0f)) - 305.0447927307f;
+                }
+            }
+
+            return {
+                std::clamp(red / 255.0f, 0.0f, 1.0f),
+                std::clamp(green / 255.0f, 0.0f, 1.0f),
+                std::clamp(blue / 255.0f, 0.0f, 1.0f)
+            };
+        }
+
+        std::uint32_t NormalizeShadowResolution(std::uint32_t resolution)
+        {
+            resolution = std::clamp<std::uint32_t>(resolution, 128u, 2048u);
+            std::uint32_t normalized = 128u;
+            while (normalized < resolution && normalized < 2048u)
+            {
+                normalized <<= 1u;
+            }
+            const std::uint32_t lower = normalized >> 1u;
+            if (lower >= 128u && normalized - resolution > resolution - lower)
+            {
+                normalized = lower;
+            }
+            return std::clamp<std::uint32_t>(normalized, 128u, 2048u);
+        }
+
         Mat4 Multiply(const Mat4& lhs, const Mat4& rhs)
         {
             Mat4 result {};
@@ -344,6 +396,7 @@ namespace Luma::Editor
         float farPlane = 2000.0f;
         float fovDegrees = 60.0f;
         float orthographicSize = 5.0f;
+        std::uint32_t activeCameraCullingMask = 0xFFFFFFFFu;
         float projectionAspectRatio = static_cast<float>(sceneView.outputWidth) /
             static_cast<float>(std::max(sceneView.outputHeight, 1u));
         CameraProjectionMode projectionMode = CameraProjectionMode::Perspective;
@@ -359,6 +412,7 @@ namespace Luma::Editor
             orthographicSize = std::max(camera.orthographicSize, 0.01f);
             nearPlane = std::max(camera.nearClip, 0.001f);
             farPlane = std::max(camera.farClip, nearPlane + 0.1f);
+            activeCameraCullingMask = camera.cullingMask;
             projectionAspectRatio = camera.useViewportAspectRatio
                 ? projectionAspectRatio
                 : std::max(camera.aspectRatio, 0.001f);
@@ -491,7 +545,11 @@ namespace Luma::Editor
         for (const EntityID entity : pointLights)
         {
             const auto& pointLight = pointLights.get<PointLightComponent>(entity);
-            if (!pointLight.active || pointLight.intensity <= 0.0f || pointLight.range <= 0.05f)
+            if (!pointLight.active ||
+                pointLight.mode == PointLightMode::Baked ||
+                (pointLight.cullingMask & activeCameraCullingMask) == 0u ||
+                pointLight.intensity <= 0.0f ||
+                pointLight.range <= 0.05f)
             {
                 continue;
             }
@@ -505,14 +563,37 @@ namespace Luma::Editor
             const Vec3 toLight = lightPosition - eye;
             const float distanceSq = Dot(toLight, toLight);
             const float range = std::max(pointLight.range, 0.05f);
-            const float score = pointLight.intensity * range * range / (1.0f + distanceSq);
+            float renderModeWeight = 1.0f;
+            switch (pointLight.renderMode)
+            {
+            case PointLightRenderMode::Important:
+                renderModeWeight = 4.0f;
+                break;
+            case PointLightRenderMode::NotImportant:
+                renderModeWeight = 0.35f;
+                break;
+            case PointLightRenderMode::Auto:
+            default:
+                break;
+            }
+            const float score = pointLight.intensity * range * range * renderModeWeight / (1.0f + distanceSq);
 
             PointLightDesc desc;
             desc.enabled = true;
             desc.position = { lightPosition.x, lightPosition.y, lightPosition.z };
-            desc.color = pointLight.color;
+            const std::array<float, 3> temperatureColor = KelvinToRgb(pointLight.temperature);
+            desc.color = {
+                pointLight.color[0] * temperatureColor[0],
+                pointLight.color[1] * temperatureColor[1],
+                pointLight.color[2] * temperatureColor[2]
+            };
             desc.intensity = pointLight.intensity;
             desc.range = range;
+            desc.attenuation = std::max(pointLight.attenuation, 0.001f);
+            desc.castsShadows = pointLight.castShadows && pointLight.mode != PointLightMode::Baked;
+            desc.softShadows = pointLight.shadowType == PointLightShadowType::SoftShadows;
+            desc.shadowBias = std::max(pointLight.shadowBias, 0.0f);
+            desc.shadowResolution = NormalizeShadowResolution(pointLight.shadowResolution);
             insertPointLight(desc, score);
         }
 

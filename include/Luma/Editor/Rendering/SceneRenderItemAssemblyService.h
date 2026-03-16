@@ -23,6 +23,14 @@ namespace Luma::Editor
             tryBuildSlotMaterialOverride;
         std::function<bool(EntityID, const Assets::MeshMaterialInfo*, MaterialRenderProxy&)>
             tryBuildEntityMaterialOverride;
+        std::function<bool(
+            EntityID,
+            const TransformComponent&,
+            const MeshRendererComponent&,
+            const PrimitiveMeshData&,
+            const MaterialRenderProxy&,
+            BakedLightmapData&)>
+            tryBuildBakedLightmap;
     };
 
     struct SceneRenderItemAssemblyScratch
